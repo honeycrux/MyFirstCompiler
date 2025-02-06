@@ -1,0 +1,9 @@
+[
+    {
+        "name": "My Compiler Kit",
+        "compilers": {
+            "C": "/usr/bin/clang-18",
+            "CXX":"/usr/bin/clang++-18"
+        }
+    }
+]
