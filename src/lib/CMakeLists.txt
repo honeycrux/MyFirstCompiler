@@ -5,5 +5,5 @@ target_sources(lib
     lexicalparser.cpp
     token.cpp
     tokenacceptor.cpp
-    tokenfactory.cpp
+    tokenregistry.cpp
 )

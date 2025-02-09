@@ -8,46 +8,51 @@ module;
 #include <fstream>
 #include <variant>
 #include <numeric>
+#include <sstream>
 
 export module lexicalparser;
 
 import token;
 import tokenacceptor;
 
-using LexicalError = std::string;
+export using LexicalError = std::string;
 
 export class LexicalParser {
     private:
-        std::vector<std::unique_ptr<TokenAcceptor>> acceptors;
+        const std::vector<std::unique_ptr<TokenAcceptor>> acceptors;
 
-        void initializeAcceptors() {
+        static std::vector<std::unique_ptr<TokenAcceptor>> createAcceptors() {
+            std::vector<std::unique_ptr<TokenAcceptor>> acceptors;
+
             // Initialize acceptors in our desired order
-            if (!acceptors.empty()) {
-                throw std::runtime_error("Acceptors already initialized");
-            }
             acceptors.push_back(std::make_unique<NumberAcceptor>());
             acceptors.push_back(std::make_unique<StringAcceptor>());
             acceptors.push_back(std::make_unique<KeywordAcceptor>());
             acceptors.push_back(std::make_unique<IdentifierAcceptor>());
             acceptors.push_back(std::make_unique<OperatorAcceptor>());
             acceptors.push_back(std::make_unique<PunctuatorAcceptor>());
+
+            return acceptors;
         }
 
-        std::string readCodeFile(const std::string_view filenamesv) {
-            std::string filename(filenamesv);
+        static std::string formatPosition(const std::string_view::const_iterator iter, const std::string_view::const_iterator begin) {
+            return " (at position " + std::to_string(std::distance(begin, iter) + 1) + ")";
+        }
+
+    public:
+        LexicalParser(): acceptors(createAcceptors()) {}
+
+        std::string readCodeFile(const std::string_view filenamesv) const {
+            const std::string filename(filenamesv);
             std::ifstream file(filename);
             if (!file.is_open()) {
                 throw std::runtime_error("Failed to open file: " + filename);
             }
-            std::string code((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            const std::string code((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
             return code;
         }
 
-        std::string formatPosition(std::string_view::const_iterator iter, std::string_view::const_iterator begin) {
-            return " (at position " + std::to_string(std::distance(begin, iter) + 1) + ")";
-        }
-
-        std::variant<std::vector<Token>, LexicalError> acceptCode(const std::string_view code) {
+        std::variant<std::vector<Token>, LexicalError> acceptCode(const std::string_view code) const {
             auto codeIter = code.begin();
             const auto codeEnd = code.end();
             std::vector<Token> tokens;
@@ -76,43 +81,50 @@ export class LexicalParser {
                     }
                 }
                 // 3. Error if no acceptor accepted
-                if (!accepted) {
+                if (codeIter != codeEnd && !accepted) {
                     return LexicalError("Unexpected token: " + std::string(1, *codeIter) + formatPosition(codeIter, code.begin()));
                 }
             }
             return tokens;
         }
 
-        void printTokens(const std::vector<Token>& tokens) {
-            std::cout << std::accumulate(tokens.begin() + 1, tokens.end(), tokens[0].toStringPrint(), [](const std::string& acc, const Token& token) {
+        std::string getPrintString(const std::vector<Token>& tokens) const {
+            std::ostringstream ss;
+            ss << std::accumulate(tokens.begin() + 1, tokens.end(), tokens[0].toStringPrint(), [](const std::string& acc, const Token& token) {
                 return acc + ", " + token.toStringPrint();
-            }) << std::endl;
+            });
+            return ss.str();
         }
 
-        void writeTokensToFile(const std::vector<Token>& tokens, const std::string_view filenamesv) {
-            std::string filename(filenamesv);
+        std::string getWriteString(const std::vector<Token>& tokens) const {
+            std::ostringstream ss;
+            ss << std::accumulate(tokens.begin() + 1, tokens.end(), tokens[0].toStringWrite(), [](const std::string& acc, const Token& token) {
+                return acc + ", " + token.toStringWrite();
+            });
+            return ss.str();
+        }
+
+        void printTokens(const std::vector<Token>& tokens) const {
+            std::cout << getPrintString(tokens) << std::endl;
+        }
+
+        void writeTokensToFile(const std::vector<Token>& tokens, const std::string_view filenamesv) const {
+            const std::string filename(filenamesv);
             std::ofstream file(filename);
             if (!file.is_open()) {
                 throw std::runtime_error("Failed to open file: " + filename);
             }
-            file << std::accumulate(tokens.begin() + 1, tokens.end(), tokens[0].toStringWrite(), [](const std::string& acc, const Token& token) {
-                return acc + ", " + token.toStringWrite();
-            }) << std::endl;
+            file << getWriteString(tokens) << std::endl;
         }
 
-    public:
-        LexicalParser() {
-            initializeAcceptors();
-        }
-
-        int run(const std::string_view codeFile, const std::string_view tokenFile) {
-            auto code = readCodeFile(codeFile);
-            auto result = acceptCode(code);
+        int run(const std::string_view codeFile, const std::string_view tokenFile) const {
+            const auto code = readCodeFile(codeFile);
+            const auto result = acceptCode(code);
             if (std::holds_alternative<LexicalError>(result)) {
                 std::cerr << std::get<LexicalError>(result) << std::endl;
                 return 1;
             }
-            auto tokens = std::get<std::vector<Token>>(result);
+            const auto tokens = std::get<std::vector<Token>>(result);
             printTokens(tokens);
             writeTokensToFile(tokens, tokenFile);
             return 0;

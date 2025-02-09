@@ -35,6 +35,6 @@ export class Token {
             return "<" + value + ", " + std::string(tokenTypeNamesMap.at(type)) + ">";
         }
         std::string toStringWrite() const {
-            return "<" + value + ", " + std::to_string(type) + ">";
+            return "<" + value + ", " + std::to_string(id) + ">";
         }
 };

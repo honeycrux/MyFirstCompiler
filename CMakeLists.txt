@@ -16,3 +16,4 @@ set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 add_subdirectory(src/lib)
 add_subdirectory(src/bin)
+add_subdirectory(test)
