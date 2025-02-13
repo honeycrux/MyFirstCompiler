@@ -30,13 +30,6 @@ inline LexicalError getParserError(const LexicalParser& parser, const std::strin
     return lexicalError;
 }
 
-TEST_CASE("Lexical parser returns error position") {
-    LexicalParser parser;
-    std::string code = "12.04.04";
-    auto error = getParserError(parser, code);
-    CHECK_THAT(error, ContainsSubstring("(at position 6)"));
-}
-
 TEST_CASE("Parse an identifier") {
     LexicalParser parser;
 
@@ -151,5 +144,35 @@ TEST_CASE("Parse a punctuator") {
         auto [printout, writeout] = getParserOutput(parser, "{}");
         CHECK(printout == "<{, punctuator>, <}, punctuator>");
         CHECK(writeout == "<{, 300>, <}, 301>");
+    }
+}
+
+TEST_CASE("Lexical parser returns error position") {
+    LexicalParser parser;
+    std::string code = "12.04.04";
+    auto error = getParserError(parser, code);
+    CHECK_THAT(error, ContainsSubstring("(at position 6)"));
+}
+
+TEST_CASE("Parse a code snippet") {
+    LexicalParser parser;
+
+    SECTION("Parse a statement") {
+        std::string code = "char c = 1;";
+        auto [printout, writeout] = getParserOutput(parser, code);
+        CHECK(printout == "<char, keyword>, <c, identifier>, <=, operator>, <1, number>, <;, punctuator>");
+        CHECK(writeout == "<char, 102>, <c, 0>, <=, 200>, <1, 1>, <;, 303>");
+    }
+
+    SECTION("Parse a code snippet") {
+        std::string code = "\nint main()  \n{\n\treturn 0;  \n  }\n\n";
+        auto [printout, writeout] = getParserOutput(parser, code);
+        CHECK(printout == "<int, keyword>, <main, identifier>, <(, punctuator>, <), punctuator>, <{, punctuator>, <return, keyword>, <0, number>, <;, punctuator>, <}, punctuator>");
+        CHECK(writeout == "<int, 100>, <main, 0>, <(, 304>, <), 305>, <{, 300>, <return, 106>, <0, 1>, <;, 303>, <}, 301>");
+    }
+
+    SECTION("Parse a code snippet with error") {
+        std::string code = "int main() { return 0.0.0; }";
+        auto error = getParserError(parser, code);
     }
 }
