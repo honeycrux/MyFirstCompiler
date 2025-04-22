@@ -7,7 +7,7 @@
 #include <string>
 
 import token;
-import lexicalparser;
+import lexer;
 
 using Catch::Matchers::ContainsSubstring;
 
@@ -16,14 +16,14 @@ struct ParserOutput {
     std::string writeOutput;
 };
 
-inline ParserOutput getParserOutput(const LexicalParser& parser, const std::string_view code) {
+inline ParserOutput getParserOutput(const Lexer& parser, const std::string_view code) {
     auto result = parser.acceptCode(code);
     REQUIRE(std::holds_alternative<std::vector<Token>>(result));
     auto tokens = std::get<std::vector<Token>>(result);
     return { parser.getPrintString(tokens), parser.getWriteString(tokens) };
 }
 
-inline LexicalError getParserError(const LexicalParser& parser, const std::string_view code) {
+inline LexicalError getParserError(const Lexer& parser, const std::string_view code) {
     auto result = parser.acceptCode(code);
     REQUIRE(std::holds_alternative<LexicalError>(result));
     auto lexicalError = std::get<LexicalError>(result);
@@ -31,7 +31,7 @@ inline LexicalError getParserError(const LexicalParser& parser, const std::strin
 }
 
 TEST_CASE("Parse an identifier") {
-    LexicalParser parser;
+    Lexer parser;
 
     SECTION("Parse a correct identifier") {
         std::string code = "_hello12k";
@@ -54,7 +54,7 @@ TEST_CASE("Parse an identifier") {
 }
 
 TEST_CASE("Parse a numeric literal") {
-    LexicalParser parser;
+    Lexer parser;
 
     SECTION("Parse an integer") {
         std::string code = "12";
@@ -72,7 +72,7 @@ TEST_CASE("Parse a numeric literal") {
 }
 
 TEST_CASE("Parse a string literal") {
-    LexicalParser parser;
+    Lexer parser;
 
     SECTION("Parse a correct string") {
         std::string code = "\"hello\"";
@@ -100,7 +100,7 @@ TEST_CASE("Parse a string literal") {
 }
 
 TEST_CASE("Parse a keyword") {
-    LexicalParser parser;
+    Lexer parser;
 
     SECTION("Parse keyword") {
         auto [printout, writeout] = getParserOutput(parser, "do");
@@ -116,7 +116,7 @@ TEST_CASE("Parse a keyword") {
 }
 
 TEST_CASE("Parse an operator") {
-    LexicalParser parser;
+    Lexer parser;
 
     SECTION("Parse operator") {
         auto [printout, writeout] = getParserOutput(parser, ">");
@@ -138,7 +138,7 @@ TEST_CASE("Parse an operator") {
 }
 
 TEST_CASE("Parse a punctuator") {
-    LexicalParser parser;
+    Lexer parser;
 
     SECTION("Parse consecutive punctuators") {
         auto [printout, writeout] = getParserOutput(parser, "{}");
@@ -148,20 +148,20 @@ TEST_CASE("Parse a punctuator") {
 }
 
 TEST_CASE("Lexical parser returns error position") {
-    LexicalParser parser;
+    Lexer parser;
     std::string code = "12.04.04";
     auto error = getParserError(parser, code);
     CHECK_THAT(error, ContainsSubstring("(at position 6)"));
 }
 
 TEST_CASE("Parse a code snippet") {
-    LexicalParser parser;
+    Lexer parser;
 
     SECTION("Parse a statement") {
-        std::string code = "char c = 1;";
+        std::string code = "string c = 1;";
         auto [printout, writeout] = getParserOutput(parser, code);
-        CHECK(printout == "<char, keyword>, <c, identifier>, <=, operator>, <1, number>, <;, punctuator>");
-        CHECK(writeout == "<char, 102>, <c, 0>, <=, 200>, <1, 1>, <;, 303>");
+        CHECK(printout == "<string, keyword>, <c, identifier>, <=, operator>, <1, number>, <;, punctuator>");
+        CHECK(writeout == "<string, 102>, <c, 0>, <=, 200>, <1, 1>, <;, 303>");
     }
 
     SECTION("Parse a code snippet") {

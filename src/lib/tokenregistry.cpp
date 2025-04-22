@@ -16,7 +16,7 @@ constexpr int stringLiteralId = 2;
 const std::map<std::string_view, int> keywordIdMap {
     {"int", 100},
     {"double", 101},
-    {"char", 102},
+    {"string", 102},
     {"for", 103},
     {"if", 104},
     {"else", 105},

@@ -1,23 +1,21 @@
 module;
 
 #include <vector>
-#include <memory>
 #include <string>
 #include <string_view>
-#include <iostream>
-#include <fstream>
 #include <variant>
-#include <numeric>
 #include <sstream>
+#include <memory>
+#include <numeric>
 
-export module lexicalparser;
+export module lexer;
 
 import token;
 import tokenacceptor;
 
 export using LexicalError = std::string;
 
-export class LexicalParser {
+export class Lexer {
     private:
         const std::vector<std::unique_ptr<TokenAcceptor>> acceptors;
 
@@ -40,17 +38,7 @@ export class LexicalParser {
         }
 
     public:
-        LexicalParser(): acceptors(createAcceptors()) {}
-
-        std::string readCodeFile(const std::string_view filenamesv) const {
-            const std::string filename(filenamesv);
-            std::ifstream file(filename);
-            if (!file.is_open()) {
-                throw std::runtime_error("Failed to open file: " + filename);
-            }
-            const std::string code((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-            return code;
-        }
+        Lexer(): acceptors(createAcceptors()) {}
 
         std::variant<std::vector<Token>, LexicalError> acceptCode(const std::string_view code) const {
             auto codeIter = code.begin();
@@ -102,31 +90,5 @@ export class LexicalParser {
                 return acc + ", " + token.toStringWrite();
             });
             return ss.str();
-        }
-
-        void printTokens(const std::vector<Token>& tokens) const {
-            std::cout << getPrintString(tokens) << std::endl;
-        }
-
-        void writeTokensToFile(const std::vector<Token>& tokens, const std::string_view filenamesv) const {
-            const std::string filename(filenamesv);
-            std::ofstream file(filename);
-            if (!file.is_open()) {
-                throw std::runtime_error("Failed to open file: " + filename);
-            }
-            file << getWriteString(tokens) << std::endl;
-        }
-
-        int run(const std::string_view codeFile, const std::string_view tokenFile) const {
-            const auto code = readCodeFile(codeFile);
-            const auto result = acceptCode(code);
-            if (std::holds_alternative<LexicalError>(result)) {
-                std::cerr << std::get<LexicalError>(result) << std::endl;
-                return 1;
-            }
-            const auto tokens = std::get<std::vector<Token>>(result);
-            printTokens(tokens);
-            writeTokensToFile(tokens, tokenFile);
-            return 0;
         }
 };

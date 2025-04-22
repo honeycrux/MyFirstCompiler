@@ -1,9 +1,9 @@
 #include <iostream>
 
-import lexicalparser;
+import compiler;
 
 int main() {
-    LexicalParser lexicalParser;
-    const int exitCode = lexicalParser.run("code.txt", "tokens.txt");
+    Compiler compiler;
+    const int exitCode = compiler.run("code.txt", "tokens.txt");
     return exitCode;
 }
