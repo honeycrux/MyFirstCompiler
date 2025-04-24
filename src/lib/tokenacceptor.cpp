@@ -9,7 +9,7 @@ module;
 export module tokenacceptor;
 
 import token;
-import tokenregistry;
+import tokenfactory;
 
 export struct AcceptResult {
     Token token;
@@ -53,7 +53,7 @@ export class IdentifierAcceptor : public TokenAcceptor {
             if (stringIter != stringEnd && nextCharacterIsConflicting(*stringIter)) {
                 return RejectResult{"Invalid character '" + std::string(1, *stringIter) + "' in identifier", stringIter};
             }
-            Token token = Token(value, TokenType::IDENTIFIER, TokenRegistry::identifierId);
+            Token token = TokenFactory::getIdentifierToken(value);
             return AcceptResult{token, stringIter};
         }
 };
@@ -103,7 +103,7 @@ export class NumberAcceptor : public TokenAcceptor {
             if (stringIter != stringEnd && nextCharacterIsConflicting(*stringIter)) {
                 return RejectResult{"Invalid digit '" + std::string(1, *stringIter) + "' in numeric constant", stringIter};
             }
-            Token token = Token(value, TokenType::NUMBER, TokenRegistry::numericLiteralId);
+            Token token = state == REAL ? TokenFactory::getRealLiteralToken(value) : TokenFactory::getIntegerLiteralToken(value);
             return AcceptResult{token, stringIter};
         }
 };
@@ -147,7 +147,7 @@ export class StringAcceptor : public TokenAcceptor {
             if (stringIter != stringEnd && nextCharacterIsConflicting(*stringIter)) {
                 return RejectResult{"Invalid character '" + std::string(1, *stringIter) + "' in string constant", stringIter};
             }
-            Token token = Token(value, TokenType::STRING, TokenRegistry::stringLiteralId);
+            Token token = TokenFactory::getStringLiteralToken(value);
             return AcceptResult{token, stringIter};
         }
 };
@@ -160,18 +160,17 @@ export class KeywordAcceptor : public TokenAcceptor {
             if (stringStart == stringEnd || !std::isalpha(*stringStart) || *stringStart == '_') {
                 return RejectResult{"Not a keyword", stringStart};
             }
-            const int maxLength = TokenRegistry::longestKeywordLength;
+            const int maxLength = TokenFactory::longestKeywordLength;
             std::string value;
             while (stringIter != stringEnd && (std::isalpha(*stringIter) || *stringIter == '_') && value.size() < maxLength) {
                 value += *stringIter;
                 stringIter++;
             }
-            const std::optional<int> id = TokenRegistry::getKeywordId(value);
-            if (!id.has_value() || (stringIter != stringEnd && nextCharacterIsConflicting(*stringIter))) {
+            const std::optional<Token> token = TokenFactory::findKeywordToken(value);
+            if (!token.has_value() || (stringIter != stringEnd && nextCharacterIsConflicting(*stringIter))) {
                 return RejectResult{"Not a keyword: " + value, stringStart};
             }
-            Token token = Token(value, TokenType::KEYWORD, id.value());
-            return AcceptResult{token, stringIter};
+            return AcceptResult{token.value(), stringIter};
         }
 };
 
@@ -183,15 +182,14 @@ export class OperatorAcceptor : public TokenAcceptor {
             if (stringStart == stringEnd || !std::ispunct(*stringStart)) {
                 return RejectResult{"Expected a operator character", stringStart};
             }
-            const int maxLength = TokenRegistry::longestOperatorLength;
+            const int maxLength = TokenFactory::longestOperatorLength;
             std::string value;
             std::optional<AcceptResult> currentBestResult;
             while (stringIter != stringEnd && value.size() < maxLength) {
                 value += *stringIter;
-                const std::optional<int> id = TokenRegistry::getOperatorId(value);
-                if (id.has_value()) {
-                    Token token = Token(value, TokenType::OPERATOR, id.value());
-                    currentBestResult.emplace(token, stringIter + 1);
+                const std::optional<Token> token = TokenFactory::findOperatorToken(value);
+                if (token.has_value()) {
+                    currentBestResult.emplace(token.value(), stringIter + 1);
                 }
                 stringIter++;
             }
@@ -207,7 +205,7 @@ export class PunctuatorAcceptor : public TokenAcceptor {
         PunctuatorAcceptor() {}
         TokenAcceptorResult accept(std::string_view::const_iterator stringIter, const std::string_view::const_iterator stringEnd) override {
             const auto stringStart = stringIter;
-            const int maxLength = TokenRegistry::longestPunctuatorLength;
+            const int maxLength = TokenFactory::longestPunctuatorLength;
             std::string value;
             if (stringStart == stringEnd || !std::ispunct(*stringStart)) {
                 return RejectResult{"Expected a punctuator character", stringStart};
@@ -215,10 +213,9 @@ export class PunctuatorAcceptor : public TokenAcceptor {
             std::optional<AcceptResult> currentBestResult;
             while (stringIter != stringEnd && value.size() < maxLength) {
                 value += *stringIter;
-                const std::optional<int> id = TokenRegistry::getPunctuatorId(value);
-                if (id.has_value()) {
-                    Token token = Token(value, TokenType::PUNCTUATOR, id.value());
-                    currentBestResult.emplace(token, stringIter + 1);
+                const std::optional<Token> token = TokenFactory::findPunctuatorToken(value);
+                if (token.has_value()) {
+                    currentBestResult.emplace(token.value(), stringIter + 1);
                 }
                 stringIter++;
             }

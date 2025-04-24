@@ -59,15 +59,15 @@ TEST_CASE("Parse a numeric literal") {
     SECTION("Parse an integer") {
         std::string code = "12";
         auto [printout, writeout] = getParserOutput(parser, code);
-        CHECK(printout == "<12, number>");
+        CHECK(printout == "<12, integer>");
         CHECK(writeout == "<12, 1>");
     }
 
     SECTION("Parse a float") {
         std::string code = "12.04";
         auto [printout, writeout] = getParserOutput(parser, code);
-        CHECK(printout == "<12.04, number>");
-        CHECK(writeout == "<12.04, 1>");
+        CHECK(printout == "<12.04, real>");
+        CHECK(writeout == "<12.04, 2>");
     }
 }
 
@@ -78,7 +78,7 @@ TEST_CASE("Parse a string literal") {
         std::string code = "\"hello\"";
         auto [printout, writeout] = getParserOutput(parser, code);
         CHECK(printout == "<\"hello\", string>");
-        CHECK(writeout == "<\"hello\", 2>");
+        CHECK(writeout == "<\"hello\", 3>");
     }
 
     SECTION("Parse a unterminated string") {
@@ -90,7 +90,7 @@ TEST_CASE("Parse a string literal") {
         std::string code = "\"\\n,\\t,\\\",\\\\,\"";
         auto [printout, writeout] = getParserOutput(parser, code);
         CHECK(printout == "<\"\\n,\\t,\\\",\\\\,\", string>");
-        CHECK(writeout == "<\"\\n,\\t,\\\",\\\\,\", 2>");
+        CHECK(writeout == "<\"\\n,\\t,\\\",\\\\,\", 3>");
     }
 
     SECTION("Parse unterminated escape") {
@@ -109,9 +109,9 @@ TEST_CASE("Parse a keyword") {
     }
 
     SECTION("Parse longest keyword") {
-        auto [printout, writeout] = getParserOutput(parser, "double");
-        CHECK(printout == "<double, keyword>");
-        CHECK(writeout == "<double, 101>");
+        auto [printout, writeout] = getParserOutput(parser, "float");
+        CHECK(printout == "<float, keyword>");
+        CHECK(writeout == "<float, 101>");
     }
 }
 
@@ -158,17 +158,17 @@ TEST_CASE("Parse a code snippet") {
     Lexer parser;
 
     SECTION("Parse a statement") {
-        std::string code = "string c = 1;";
+        std::string code = "str c = 1;";
         auto [printout, writeout] = getParserOutput(parser, code);
-        CHECK(printout == "<string, keyword>, <c, identifier>, <=, operator>, <1, number>, <;, punctuator>");
-        CHECK(writeout == "<string, 102>, <c, 0>, <=, 200>, <1, 1>, <;, 303>");
+        CHECK(printout == "<str, keyword>, <c, identifier>, <=, operator>, <1, integer>, <;, punctuator>");
+        CHECK(writeout == "<str, 102>, <c, 0>, <=, 200>, <1, 1>, <;, 303>");
     }
 
     SECTION("Parse a code snippet") {
         std::string code = "\nint main()  \n{\n\treturn 0;  \n  }\n\n";
         auto [printout, writeout] = getParserOutput(parser, code);
-        CHECK(printout == "<int, keyword>, <main, identifier>, <(, punctuator>, <), punctuator>, <{, punctuator>, <return, keyword>, <0, number>, <;, punctuator>, <}, punctuator>");
-        CHECK(writeout == "<int, 100>, <main, 0>, <(, 304>, <), 305>, <{, 300>, <return, 106>, <0, 1>, <;, 303>, <}, 301>");
+        CHECK(printout == "<int, keyword>, <main, keyword>, <(, punctuator>, <), punctuator>, <{, punctuator>, <return, keyword>, <0, integer>, <;, punctuator>, <}, punctuator>");
+        CHECK(writeout == "<int, 100>, <main, 109>, <(, 304>, <), 305>, <{, 300>, <return, 106>, <0, 1>, <;, 303>, <}, 301>");
     }
 
     SECTION("Parse a code snippet with error") {
