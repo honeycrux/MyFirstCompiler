@@ -39,8 +39,8 @@ export namespace TokenFactory {
         return Token(TokenRegistry::integerLiteralId, TokenType::INTEGER, str);
     }
 
-    Token getRealLiteralToken(std::string_view str) {
-        return Token(TokenRegistry::realLiteralId, TokenType::REAL, str);
+    Token getFloatLiteralToken(std::string_view str) {
+        return Token(TokenRegistry::floatLiteralId, TokenType::FLOAT, str);
     }
 
     Token getStringLiteralToken(std::string_view str) {

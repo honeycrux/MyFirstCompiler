@@ -9,7 +9,7 @@ export module token;
 export enum TokenType {
     IDENTIFIER,
     INTEGER,
-    REAL,
+    FLOAT,
     STRING,
     KEYWORD,
     OPERATOR,
@@ -19,7 +19,7 @@ export enum TokenType {
 const std::map<TokenType, std::string_view> tokenTypeNamesMap {
     {TokenType::IDENTIFIER, "identifier"},
     {TokenType::INTEGER, "integer"},
-    {TokenType::REAL, "real"},
+    {TokenType::FLOAT, "float"},
     {TokenType::STRING, "string"},
     {TokenType::KEYWORD, "keyword"},
     {TokenType::OPERATOR, "operator"},
@@ -41,5 +41,11 @@ export class Token {
         }
         int getId() const {
             return id;
+        }
+        TokenType getType() const {
+            return type;
+        }
+        std::string_view getValue() const {
+            return value;
         }
 };

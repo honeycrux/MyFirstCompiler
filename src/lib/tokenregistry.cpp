@@ -11,7 +11,7 @@ export namespace TokenRegistry {
 
     constexpr int integerLiteralId = 1;
 
-    constexpr int realLiteralId = 2;
+    constexpr int floatLiteralId = 2;
 
     constexpr int stringLiteralId = 3;
 
@@ -25,7 +25,6 @@ export namespace TokenRegistry {
         {"return", 106},
         {"while", 107},
         {"do", 108},
-        {"main", 109},
     };
 
     const std::map<std::string_view, int> operatorIdMap {
@@ -40,6 +39,10 @@ export namespace TokenRegistry {
         {"-", 208},
         {"*", 209},
         {"/", 210},
+        {"%", 211},
+        {"&&", 212},
+        {"||", 213},
+        {"!", 214},
     };
 
     const std::map<std::string_view, int> punctuatorIdMap {

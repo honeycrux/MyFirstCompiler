@@ -19,24 +19,23 @@ export struct RejectResult {
 
 export using ParsingResult = std::variant<AcceptResult, RejectResult>;
 
-export class Parser {
-
+export class ParserBase {
     public:
-        Parser() {}
-
+        ParserBase() {}
+        virtual ~ParserBase() = default;
         virtual ParsingResult parse(std::vector<Token>::const_iterator tokenIter, const std::vector<Token>::const_iterator tokenEnd) const = 0;
 };
 
 export class Terminal {
     private:
         const int id;
+        const std::string name;
 
     public:
-        Terminal(int id) : id(id) {}
-        Terminal(const Token& token) : id(token.getId()) {}
+        Terminal(int id, std::string_view name) : id(id), name(name) {}
 
-        int getId() const {
-            return id;
+        std::string_view getName() const {
+            return name;
         }
 
         bool matchesToken(const Token& token) const {
@@ -70,4 +69,6 @@ export class NonTerminal {
 
 export using Symbol = std::variant<Terminal, NonTerminal>;
 
-export using Production = std::pair<NonTerminal, std::vector<Symbol>>;
+export using Product = std::vector<Symbol>;
+
+export using Production = std::pair<NonTerminal, Product>;

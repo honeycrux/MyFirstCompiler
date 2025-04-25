@@ -12,16 +12,17 @@ export module ll1parser;
 
 import token;
 import parserbase;
+import terminalfactory;
 
-using ParsingTable = std::map<std::pair<NonTerminal, Terminal>, std::vector<Symbol>>;
+export using LL1ParsingTable = std::map<std::pair<NonTerminal, Terminal>, std::vector<Symbol>>;
 
-export class LL1Parser : public Parser {
+export class LL1Parser : public ParserBase {
     private:
         const NonTerminal startSymbol;
-        const ParsingTable parsingTable;
+        const LL1ParsingTable parsingTable;
 
     public:
-        LL1Parser(const NonTerminal startSymbol, const ParsingTable& parsingTable)
+        LL1Parser(const NonTerminal startSymbol, const LL1ParsingTable& parsingTable)
             : startSymbol(startSymbol), parsingTable(parsingTable) {}
 
         ParsingResult parse(std::vector<Token>::const_iterator tokenIter, const std::vector<Token>::const_iterator tokenEnd) const override {
@@ -57,7 +58,7 @@ export class LL1Parser : public Parser {
                     // Look up parsing table for production rule
 
                     const auto& stackNonTerminal = std::get<NonTerminal>(currentSymbol);
-                    const auto& currentTokenAsTerminal = Terminal{*currentTokenIter};
+                    const auto& currentTokenAsTerminal = TerminalFactory::fromToken(*currentTokenIter);
                     const auto productionIter = parsingTable.find(std::make_pair(stackNonTerminal, currentTokenAsTerminal));
                     if (productionIter == parsingTable.end()) {
                         return RejectResult{"Unexpected token: " + currentTokenIter->toStringPrint(), currentTokenIter};

@@ -33,7 +33,7 @@ bool nextCharacterIsConflicting(char nextChar) {
 export class TokenAcceptor {
     public:
         TokenAcceptor() {}
-        virtual ~TokenAcceptor() {}
+        virtual ~TokenAcceptor() = default;
         virtual TokenAcceptorResult accept(std::string_view::const_iterator stringIter, const std::string_view::const_iterator stringEnd) = 0;
 };
 
@@ -69,7 +69,7 @@ export class NumberAcceptor : public TokenAcceptor {
             enum State {
                 INT,
                 DOT,
-                REAL,
+                FLOAT,
             };
             std::string value;
             State state = INT;
@@ -86,9 +86,9 @@ export class NumberAcceptor : public TokenAcceptor {
                     if (!std::isdigit(*stringIter)) {
                         break;
                     }
-                    state = REAL;
+                    state = FLOAT;
                 }
-                else if (state == REAL) {
+                else if (state == FLOAT) {
                     if (!std::isdigit(*stringIter)) {
                         break;
                     }
@@ -103,7 +103,7 @@ export class NumberAcceptor : public TokenAcceptor {
             if (stringIter != stringEnd && nextCharacterIsConflicting(*stringIter)) {
                 return RejectResult{"Invalid digit '" + std::string(1, *stringIter) + "' in numeric constant", stringIter};
             }
-            Token token = state == REAL ? TokenFactory::getRealLiteralToken(value) : TokenFactory::getIntegerLiteralToken(value);
+            Token token = state == FLOAT ? TokenFactory::getFloatLiteralToken(value) : TokenFactory::getIntegerLiteralToken(value);
             return AcceptResult{token, stringIter};
         }
 };

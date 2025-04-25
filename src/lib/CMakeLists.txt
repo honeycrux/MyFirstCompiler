@@ -7,11 +7,11 @@ target_sources(lib
     compiler.cpp
 
     # Lexer
-    lexer.cpp
     token.cpp
     tokenacceptor.cpp
     tokenfactory.cpp
     tokenregistry.cpp
+    lexer.cpp
 
     # Parser
     parserbase.cpp
@@ -19,4 +19,5 @@ target_sources(lib
     ll1parser.cpp
     slr1parser.cpp
     terminalfactory.cpp
+    parser.cpp
 )
