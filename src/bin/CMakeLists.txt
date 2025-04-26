@@ -1,2 +1,8 @@
-add_executable(task-1-lexical task-1-lexical.cpp)
-target_link_libraries(task-1-lexical PRIVATE lib)
+add_executable(compiler)
+target_sources(compiler
+  PUBLIC
+    FILE_SET all_my_modules TYPE CXX_MODULES FILES
+
+    compiler.cpp
+)
+target_link_libraries(compiler PRIVATE lexer parser)

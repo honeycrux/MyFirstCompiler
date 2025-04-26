@@ -9,4 +9,4 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 
 add_executable(test-lexer test-lexer.cpp)
-target_link_libraries(test-lexer PRIVATE Catch2::Catch2WithMain lib)
+target_link_libraries(test-lexer PRIVATE Catch2::Catch2WithMain lexer)
