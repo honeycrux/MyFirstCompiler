@@ -11,6 +11,7 @@ module;
 export module slr1parser;
 
 import token;
+import symbol;
 import parserbase;
 import terminalfactory;
 
@@ -40,7 +41,7 @@ export using Instruction = std::variant<State, int, char>;
 
 export using ProductionMap = std::map<int, Production>;
 
-export using SLR1ParsingTable = std::map<std::pair<State, std::optional<Symbol>>, Instruction>;
+export using SLR1ParsingTable = std::map<std::pair<State, SymbolOrEOL>, Instruction>;
 
 export class SLR1Parser : public ParserBase {
     private:
@@ -55,7 +56,7 @@ export class SLR1Parser : public ParserBase {
         ParsingResult parse(std::vector<Token>::const_iterator tokenIter, const std::vector<Token>::const_iterator tokenEnd) const override {
             auto nextTokenIter = tokenIter;
             bool assumeEndOfLine = false;
-            std::stack<std::pair<State, std::optional<Symbol>>> stateSymbolStack;
+            std::stack<std::pair<State, std::variant<Token, ParseTree>>> stateSymbolStack;
 
             while (true) {
                 const auto getCurrentState = [&]() {
@@ -75,7 +76,7 @@ export class SLR1Parser : public ParserBase {
                         }
                     }
                     assumeEndOfLine = true;
-                    const auto instructionIter = parsingTable.find(std::make_pair(getCurrentState(), std::nullopt));
+                    const auto instructionIter = parsingTable.find(std::make_pair(getCurrentState(), EOL));
                     if (instructionIter != parsingTable.end()) {
                         return instructionIter->second;
                     }
@@ -96,7 +97,7 @@ export class SLR1Parser : public ParserBase {
                     if (nextTokenIter == tokenEnd) {
                         return ParserRejectResult{"Unexpected end of input", nextTokenIter};
                     }
-                    stateSymbolStack.push(std::make_pair(newState, TerminalFactory::fromToken(*nextTokenIter)));
+                    stateSymbolStack.push(std::make_pair(newState, *nextTokenIter));
                     nextTokenIter++;
                 } else if (std::holds_alternative<int>(instruction)) {
                     // Reduce
@@ -109,13 +110,17 @@ export class SLR1Parser : public ParserBase {
                     const auto& nonTerminal = productionIter->second.first;
                     const auto& symbols = productionIter->second.second;
 
+                    ParseTree newParseTree{nonTerminal};
+
                     // Pop symbols from stack
                     for (int i = 0; i < symbols.size(); i++) {
+                        const auto& symbol = stateSymbolStack.top().second;
+                        newParseTree.addChild(symbol);
                         stateSymbolStack.pop();
                     }
 
                     // Find new state
-                    const auto nextStateIter = parsingTable.find(std::make_pair(getCurrentState(), std::optional<Symbol>{nonTerminal}));
+                    const auto nextStateIter = parsingTable.find(std::make_pair(getCurrentState(), SymbolOrEOL{nonTerminal}));
                     if (nextStateIter == parsingTable.end()) {
                         return ParserRejectResult{"Unexpected token: " + (*nextTokenIter).toStringPrint(), nextTokenIter};
                     }
@@ -126,11 +131,17 @@ export class SLR1Parser : public ParserBase {
                     const auto newState = std::get<State>(nextStateInstruction);
 
                     // Push new state to stack
-                    stateSymbolStack.push(std::make_pair(newState, nonTerminal));
+                    stateSymbolStack.push(std::make_pair(newState, newParseTree));
                 } else if (std::holds_alternative<char>(instruction)) {
                     // Accept
 
-                    return ParserAcceptResult{nextTokenIter};
+                    const auto& stackTop = stateSymbolStack.top().second;
+                    if (std::holds_alternative<Token>(stackTop)) {
+                        return ParserRejectResult{"Unexpected token: " + std::get<Token>(stackTop).toStringPrint(), nextTokenIter};
+                    }
+                    const auto& parseTree = std::get<ParseTree>(stackTop);
+
+                    return ParserAcceptResult{parseTree, nextTokenIter};
                 } else {
                     throw std::runtime_error("Unknown instruction type");
                 }

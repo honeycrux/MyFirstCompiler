@@ -6,10 +6,13 @@ module;
 #include <optional>
 #include <string>
 #include <variant>
+#include <iostream>
 
 export module parser;
 
 import token;
+import symbol;
+import ast;
 import parserbase;
 import rdparser;
 import ll1parser;
@@ -33,8 +36,6 @@ export class Parser {
             const auto getKeyword = TerminalFactory::getKeyword;
             const auto getOperator = TerminalFactory::getOperator;
             const auto getPunctuator = TerminalFactory::getPunctuator;
-
-            const auto EOL = std::nullopt;
 
             std::unique_ptr<LL1Parser> varConstParser = std::make_unique<LL1Parser>(NonTerminal("S"), LL1ParsingTable{
                 // S
@@ -191,14 +192,7 @@ export class Parser {
                     {
                         NonTerminal("FuncDef"),
                         {
-                            { NonTerminal("Type"), id, getPunctuator("("), NonTerminal("ParamList"), getPunctuator(")"), NonTerminal("BlockStmt") }
-                        }
-                    },
-
-                    {
-                        NonTerminal("ParamList"),
-                        {
-                            { paramListParser.get() }
+                            { NonTerminal("Type"), id, getPunctuator("("), paramListParser.get(), getPunctuator(")"), NonTerminal("BlockStmt") }
                         }
                     },
 
@@ -284,7 +278,7 @@ export class Parser {
                     {
                         NonTerminal("ForStmt"),
                         {
-                            { getKeyword("for"), getPunctuator("("), NonTerminal("ForVarDecl"), getPunctuator(";"), NonTerminal("Expr"), getPunctuator(";"), NonTerminal("ExprList"), getPunctuator(")"), NonTerminal("BlockStmt") }
+                            { getKeyword("for"), getPunctuator("("), NonTerminal("ForVarDecl"), getPunctuator(";"), NonTerminal("Expr"), getPunctuator(";"), NonTerminal("Expr"), getPunctuator(")"), NonTerminal("BlockStmt") }
                         }
                     },
                     {
@@ -292,14 +286,6 @@ export class Parser {
                         {
                             { NonTerminal("Type"), NonTerminal("VarList") },
                             { NonTerminal("VarList") }
-                        }
-                    },
-                    {
-                        NonTerminal("ExprList"),
-                        {
-                            { NonTerminal("Expr"), getPunctuator(","), NonTerminal("ExprList") },
-                            { NonTerminal("Expr") },
-                            {}
                         }
                     },
 
@@ -419,14 +405,8 @@ export class Parser {
                     {
                         NonTerminal("ArgList"),
                         {
-                            { NonTerminal("Expr"), NonTerminal("ArgList'") },
-                            { NonTerminal("ArgList'") }
-                        }
-                    },
-                    {
-                        NonTerminal("ArgList'"),
-                        {
-                            { getPunctuator(","), NonTerminal("Expr"), NonTerminal("ArgList'") },
+                            { NonTerminal("Expr"), getPunctuator(","), NonTerminal("ArgList") },
+                            { NonTerminal("Expr") },
                             {}
                         }
                     },
@@ -434,7 +414,7 @@ export class Parser {
                         NonTerminal("Factor"),
                         {
                             { getPunctuator("("), NonTerminal("Expr"), getPunctuator(")") },
-                            { NonTerminal("VarConst") }
+                            { varConstParser.get() }
                         }
                     },
                     {
@@ -474,16 +454,74 @@ export class Parser {
                             { getOperator("-") },
                             { getOperator("!") }
                         }
-                    },
-
-                    {
-                        NonTerminal("VarConst"),
-                        {
-                            { varConstParser.get() }
-                        }
                     }
                 }
             );
+
+            const SimplifyInstructionMap simplifyHandlerMap{
+                { NonTerminal("Start"), SimplifyInstruction::RETAIN },
+                { NonTerminal("DeclList"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("Decl"), SimplifyInstruction::RETAIN },
+                { NonTerminal("FuncDef"), SimplifyInstruction::RETAIN },
+                { NonTerminal("ParamList"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("Param"), SimplifyInstruction::RETAIN },
+                { NonTerminal("ParamVar"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("VarDecl"), SimplifyInstruction::RETAIN },
+                { NonTerminal("VarList"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("VarAssignable"), SimplifyInstruction::RETAIN },
+                { NonTerminal("Var"), SimplifyInstruction::RETAIN },
+                { NonTerminal("Type"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("BlockStmt"), SimplifyInstruction::RETAIN },
+                { NonTerminal("StmtList"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("Stmt"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("IfStmt"), SimplifyInstruction::RETAIN },
+                { NonTerminal("WhileStmt"), SimplifyInstruction::RETAIN },
+                { NonTerminal("ForStmt"), SimplifyInstruction::RETAIN },
+                { NonTerminal("ReturnStmt"), SimplifyInstruction::RETAIN },
+                { NonTerminal("Expr"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("AssignExpr"), SimplifyInstruction::RETAIN_IF_MULTIPLE_CHILDREN },
+                { NonTerminal("OrExpr"), SimplifyInstruction::RETAIN_IF_MULTIPLE_CHILDREN },
+                { NonTerminal("OrExpr'"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("AndExpr"), SimplifyInstruction::RETAIN_IF_MULTIPLE_CHILDREN },
+                { NonTerminal("AndExpr'"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("EqualityExpr"), SimplifyInstruction::RETAIN_IF_MULTIPLE_CHILDREN },
+                { NonTerminal("EqualityExpr'"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("RelationalExpr"), SimplifyInstruction::RETAIN_IF_MULTIPLE_CHILDREN },
+                { NonTerminal("RelationalExpr'"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("SumExpr"), SimplifyInstruction::RETAIN_IF_MULTIPLE_CHILDREN },
+                { NonTerminal("SumExpr'"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("MulExpr"), SimplifyInstruction::RETAIN_IF_MULTIPLE_CHILDREN },
+                { NonTerminal("MulExpr'"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("UnaryExpr"), SimplifyInstruction::RETAIN_IF_MULTIPLE_CHILDREN },
+                { NonTerminal("FuncCall"), SimplifyInstruction::RETAIN_IF_MULTIPLE_CHILDREN },
+                { NonTerminal("ArgList"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("Factor"), SimplifyInstruction::RETAIN_IF_MULTIPLE_CHILDREN },
+                { NonTerminal("EqualityOp"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("RelationalOp"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("SumOp"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("MulOp"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("UnaryOp"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("VarConst"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("Constant"), SimplifyInstruction::MERGE_UP }
+            };
+
+            // const std::map<NonTerminal, AstHandler> handlerMap{
+            //     { NonTerminal("Start"), [](const AstChildren& children) {
+            //         const auto& child = std::get<std::unique_ptr<AstNode>>(children[0]);
+            //         return std::move(child);
+            //     }},
+
+            //     {
+            //         NonTerminal("Var'"),
+            //         [](const AstChildren& children) {
+            //             if (children.size() == 0) {
+            //                 return std::make_unique<AstNode>("Var'");
+            //             }
+            //             const auto& child = std::get<std::unique_ptr<AstNode>>(children[0]);
+            //             return std::make_unique<AstNode>("Var'", std::move(child));
+            //         }
+            //     }
+            // };
 
             auto result = parser.parse(tokens.begin(), tokens.end());
 
@@ -496,6 +534,10 @@ export class Parser {
                 if (acceptResult.next != tokens.end()) {
                     return ParserError("Unexpected token: " + acceptResult.next->toStringPrint() + formatPosition(acceptResult.next, tokens.begin()));
                 }
+                // std::cout << acceptResult.parseTree.toString() << std::endl;
+                const auto simplified = acceptResult.parseTree.simplify(simplifyHandlerMap);
+                std::cout << simplified.toString() << std::endl;
+                // const auto ast = acceptResult.parseTree.toAst(handlerMap);
                 return true;
             }
             else {

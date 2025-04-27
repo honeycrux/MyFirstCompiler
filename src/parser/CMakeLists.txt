@@ -3,6 +3,8 @@ target_sources(parser
   PUBLIC
     FILE_SET cxx_modules TYPE CXX_MODULES FILES
 
+    symbol.cpp
+    ast.cpp
     parserbase.cpp
     rdparser.cpp
     ll1parser.cpp

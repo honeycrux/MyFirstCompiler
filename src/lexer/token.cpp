@@ -45,7 +45,7 @@ export class Token {
         TokenType getType() const {
             return type;
         }
-        std::string_view getValue() const {
+        std::string getValue() const {
             return value;
         }
 };

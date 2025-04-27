@@ -77,18 +77,18 @@ export class Lexer {
         }
 
         std::string getPrintString(const std::vector<Token>& tokens) const {
-            std::ostringstream ss;
-            ss << std::accumulate(tokens.begin() + 1, tokens.end(), tokens[0].toStringPrint(), [](const std::string& acc, const Token& token) {
+            std::ostringstream oss;
+            oss << std::accumulate(tokens.begin() + 1, tokens.end(), tokens[0].toStringPrint(), [](const std::string& acc, const Token& token) {
                 return acc + ", " + token.toStringPrint();
             });
-            return ss.str();
+            return oss.str();
         }
 
         std::string getWriteString(const std::vector<Token>& tokens) const {
-            std::ostringstream ss;
-            ss << std::accumulate(tokens.begin() + 1, tokens.end(), tokens[0].toStringWrite(), [](const std::string& acc, const Token& token) {
+            std::ostringstream oss;
+            oss << std::accumulate(tokens.begin() + 1, tokens.end(), tokens[0].toStringWrite(), [](const std::string& acc, const Token& token) {
                 return acc + ", " + token.toStringWrite();
             });
-            return ss.str();
+            return oss.str();
         }
 };

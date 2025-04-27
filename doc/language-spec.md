@@ -32,9 +32,8 @@ IfStmt ::= if ( Expr ) BlockStmt | if ( Expr ) BlockStmt else BlockStmt
 
 WhileStmt ::= while ( Expr ) BlockStmt
 
-ForStmt ::= for ( ForVarDecl ; Expr ; ExprList ) BlockStmt
+ForStmt ::= for ( ForVarDecl ; Expr ; Expr ) BlockStmt
 ForVarDecl ::= Type VarList | VarList
-ExprList ::= Expr , ExprList | Expr | ε
 
 ReturnStmt ::= return Expr ; | return ;
 
@@ -49,13 +48,13 @@ SumExpr ::= SumExpr SumOp MulExpr | MulExpr
 MulExpr ::= MulExpr MulOp UnaryExpr | UnaryExpr
 UnaryExpr ::= UnaryOp UnaryExpr | FuncCall
 FuncCall ::= id ( ArgList ) | Factor
-ArgList ::= ArgList , Expr | Expr | ε
+ArgList ::= Expr , ArgList | Expr | ε
 Factor ::= ( Expr ) | VarConst
 
 EqualityOp ::= == | !=
 RelationalOp ::= < | <= | > | >=
 SumOp ::= + | -
-MulOp ::= * | ?
+MulOp ::= * | / | %
 UnaryOp ::= + | - | !
 
 % LL1 %
@@ -94,8 +93,7 @@ MulExpr ::= UnaryExpr MulExpr'
 MulExpr' ::= MulOp UnaryExpr MulExpr' | ε
 UnaryExpr ::= UnaryOp UnaryExpr | FuncCall
 FuncCall ::= id ( ArgList ) | Factor
-ArgList ::= Expr ArgList' | ArgList'
-ArgList' ::= , Expr ArgList' | ε
+ArgList ::= Expr , ArgList | Expr | ε
 Factor ::= ( Expr ) | VarConst
 ```
 

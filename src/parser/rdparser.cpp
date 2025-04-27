@@ -5,11 +5,12 @@ module;
 #include <variant>
 #include <map>
 #include <stdexcept>
-#include <iostream>
+// #include <iostream>
 
 export module rdparser;
 
 import token;
+import symbol;
 import parserbase;
 
 export using RdpProduct = std::vector<std::variant<NonTerminal, Terminal, ParserBase*>>;
@@ -21,7 +22,7 @@ export class RecursiveDescentParser : public ParserBase {
         const RdpProductMap productMap;
 
         ParsingResult parseNonTerminal(std::vector<Token>::const_iterator tokenIter, const std::vector<Token>::const_iterator tokenEnd, const NonTerminal& nonTerminal) const {
-            std::cout << "[in] " << nonTerminal.getName() << " this: " << (tokenIter == tokenEnd ? "EOL" : tokenIter->toStringPrint()) << std::endl;
+            // std::cout << "[in] " << nonTerminal.getName() << " this: " << (tokenIter == tokenEnd ? "EOL" : tokenIter->toStringPrint()) << std::endl;
 
             auto productsIter = productMap.find(nonTerminal);
             if (productsIter == productMap.end()) {
@@ -30,6 +31,7 @@ export class RecursiveDescentParser : public ParserBase {
             auto products = productsIter->second;
 
             for (const auto& product : products) {
+                ParseTree parseTree(nonTerminal);
                 auto nextTokenIter = tokenIter;
                 bool success = true;
                 for (const auto& symbol : product) {
@@ -39,6 +41,7 @@ export class RecursiveDescentParser : public ParserBase {
                             success = false;
                             break;
                         }
+                        parseTree.addChild(*nextTokenIter);
                         nextTokenIter++;
                     }
                     else if (std::holds_alternative<NonTerminal>(symbol)) {
@@ -48,7 +51,9 @@ export class RecursiveDescentParser : public ParserBase {
                             success = false;
                             break;
                         }
-                        nextTokenIter = std::get<ParserAcceptResult>(result).next;
+                        auto acceptResult = std::get<ParserAcceptResult>(result);
+                        parseTree.addChild(acceptResult.parseTree);
+                        nextTokenIter = acceptResult.next;
                     }
                     else if (std::holds_alternative<ParserBase*>(symbol)) {
                         const auto& subParser = std::get<ParserBase*>(symbol);
@@ -57,18 +62,20 @@ export class RecursiveDescentParser : public ParserBase {
                             success = false;
                             break;
                         }
-                        nextTokenIter = std::get<ParserAcceptResult>(result).next;
+                        auto acceptResult = std::get<ParserAcceptResult>(result);
+                        parseTree.addChild(acceptResult.parseTree);
+                        nextTokenIter = acceptResult.next;
                     }
                     else {
                         throw std::runtime_error("Unknown symbol type");
                     }
                 }
                 if (success) {
-                    std::cout << "[success] " << nonTerminal.getName() << " next: " << (nextTokenIter == tokenEnd ? "EOL" : nextTokenIter->toStringPrint()) << std::endl;
-                    return ParserAcceptResult{nextTokenIter};
+                    // std::cout << "[success] " << nonTerminal.getName() << " next: " << (nextTokenIter == tokenEnd ? "EOL" : nextTokenIter->toStringPrint()) << std::endl;
+                    return ParserAcceptResult{parseTree, nextTokenIter};
                 }
             }
-            std::cout << "[fail] " << nonTerminal.getName() << std::endl;
+            // std::cout << "[fail] " << nonTerminal.getName() << std::endl;
             return ParserRejectResult{"No valid production found for non-terminal: " + std::string{nonTerminal.getName()}, tokenIter};
         }
 

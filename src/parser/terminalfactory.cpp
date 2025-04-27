@@ -8,7 +8,7 @@ export module terminalfactory;
 
 import token;
 import tokenregistry;
-import parserbase;
+import symbol;
 
 export namespace TerminalFactory {
     Terminal getIdentifier() {
