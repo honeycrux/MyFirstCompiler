@@ -24,8 +24,9 @@ IfStmt ::= if ( expr ) BlockStmt | if ( expr ) BlockStmt else BlockStmt
 
 WhileStmt ::= while ( expr ) BlockStmt
 
-ForStmt ::= for ( ForVarDecl ; expr ; expr ) BlockStmt
-ForVarDecl ::= [VarAssignable ,]+
+ForStmt ::= for ( ForVarDecl ; Expr ; Expr ) BlockStmt
+ForVarDecl ::= [VarAssign, ]+
+VarAssign ::= Var = Expr
 
 ReturnStmt ::= return expr ; | return ;
 
@@ -56,6 +57,7 @@ BlockStmt ( statements: AstNode[] )
 IfStmt ( condExpr: AstNode, thenBody: AstNode, elseBody?: AstNode )
 WhileStmt ( condExpr: AstNode, body: AstNode )
 ForStmt ( forVarDecl: AstNode[], condExpr: AstNode, incrExpr: AstNode )
+VarAssign ( var: AstNode, value: AstNode )
 ReturnStmt ( expr?: AstNode )
 AssignExpr ( var: AstNode, expr: AstNode )
 OrExpr ( lexpr: AstNode, rexpr: AstNode )

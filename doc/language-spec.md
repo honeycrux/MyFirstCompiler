@@ -17,8 +17,8 @@ Param ::= Type ParamVar
 ParamVar ::= id [ ] | id
 Type ::= int | float | str
 
-VarDecl ::= Type VarList ;
-VarList ::= VarAssignable , VarList | VarAssignable
+VarDecl ::= Type VarAssignableList ;
+VarAssignableList ::= VarAssignable , VarAssignableList | VarAssignable
 VarAssignable ::= Var = Expr | Var
 
 Var ::= id [ intconst ] | id
@@ -28,12 +28,14 @@ BlockStmt ::= { StmtList }
 StmtList ::= Stmt StmtList | ε
 Stmt ::= VarDecl | IfStmt | WhileStmt | ForStmt | ReturnStmt | Expr ; | ;
 
-IfStmt ::= if ( Expr ) BlockStmt | if ( Expr ) BlockStmt else BlockStmt
+IfStmt ::= if ( Expr ) BlockStmt else BlockStmt | if ( Expr ) BlockStmt
 
 WhileStmt ::= while ( Expr ) BlockStmt
 
 ForStmt ::= for ( ForVarDecl ; Expr ; Expr ) BlockStmt
-ForVarDecl ::= VarList
+ForVarDecl ::= VarAssignList
+VarAssignList ::= VarAssign, VarAssignList | VarAssign | ε
+VarAssign ::= Var = Expr
 
 ReturnStmt ::= return Expr ; | return ;
 

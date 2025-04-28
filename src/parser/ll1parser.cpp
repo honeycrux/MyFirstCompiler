@@ -15,9 +15,121 @@ import symbol;
 import parserbase;
 import terminalfactory;
 
+export class LL1ParseTree; // forward declaration
+
+export using LL1PTChild = std::variant<Terminal, Token, LL1ParseTree>;
+
+class LL1ParseTree {
+    private:
+        const NonTerminal nonTerminal;
+        std::vector<LL1PTChild> children;
+        bool hasProduction = false;
+
+        bool placeInner(const Production& production) {
+            if (!hasProduction) {
+                if (nonTerminal == production.first) {
+                    for (const auto& symbol : production.second) {
+                        if (std::holds_alternative<Terminal>(symbol)) {
+                            children.push_back(std::get<Terminal>(symbol));
+                        } else if (std::holds_alternative<NonTerminal>(symbol)) {
+                            children.push_back(std::get<NonTerminal>(symbol));
+                        } else {
+                            throw std::runtime_error("Unknown symbol type in production");
+                        }
+                    }
+                    hasProduction = true;
+                    return true;
+                } else {
+                    throw std::runtime_error("First non-terminal do not match production: " + std::string{nonTerminal.getName()} + " and " + std::string{production.first.getName()});
+                }
+            }
+            for (auto& child : children) {
+                if (std::holds_alternative<Token>(child)) {
+                    // Do nothing
+                } else if (std::holds_alternative<LL1ParseTree>(child)) {
+                    auto& childParseTree = std::get<LL1ParseTree>(child);
+                    bool result = childParseTree.placeInner(production);
+                    if (result) {
+                        return true;
+                    }
+                } else if (std::holds_alternative<Terminal>(child)) {
+                    throw std::runtime_error("First empty child of parse tree is a terminal when trying to place production");
+                }
+            }
+            return false;
+        }
+
+        bool placeInner(const Token& token) {
+            if (!hasProduction) {
+                throw std::runtime_error("First empty child of parse tree is a non-terminal when trying to place token");
+            }
+            for (auto& child : children) {
+                if (std::holds_alternative<Token>(child)) {
+                    // Do nothing
+                } else if (std::holds_alternative<LL1ParseTree>(child)) {
+                        bool result = std::get<LL1ParseTree>(child).placeInner(token);
+                        if (result) {
+                            return true;
+                        }
+                } else if (std::holds_alternative<Terminal>(child)) {
+                    const auto& childTerminal = std::get<Terminal>(child);
+                    if (childTerminal.matchesToken(token)) {
+                        child.emplace<Token>(token);
+                        return true;
+                    } else {
+                        throw std::runtime_error("First terminal do not match token: " + std::string{childTerminal.getName()} + " and " + token.toStringPrint());
+                    }
+                }
+            }
+            return false;
+        }
+
+    public:
+        LL1ParseTree(const NonTerminal& nonTerminal) : nonTerminal(nonTerminal) {}
+
+        void place(const Production& production) {
+            bool result = placeInner(production);
+            if (!result) {
+                throw std::runtime_error("Failed to place production in parse tree");
+            }
+        }
+
+        void place(const Token& token) {
+            bool result = placeInner(token);
+            if (!result) {
+                throw std::runtime_error("Failed to place token in parse tree");
+            }
+        }
+
+        NonTerminal getNonTerminal() const {
+            return nonTerminal;
+        }
+
+        ParseTree toParseTree() const {
+            ParseTree parseTree(nonTerminal);
+            for (const auto& child : children) {
+                if (std::holds_alternative<Token>(child)) {
+                    parseTree.addChild(std::get<Token>(child));
+                } else if (std::holds_alternative<LL1ParseTree>(child)) {
+                    if (hasProduction) {
+                        parseTree.addChild(std::get<LL1ParseTree>(child).toParseTree());
+                    } else {
+                        throw std::runtime_error("Cannot add non-terminal to parse tree");
+                    }
+                } else if (std::holds_alternative<Terminal>(child)) {
+                    // It is assumed that all tokens become terminals at this point
+                    throw std::runtime_error("Cannot add terminal to parse tree");
+                } else {
+                    throw std::runtime_error("Unknown child type in parse tree");
+                }
+            }
+            return parseTree;
+        }
+};
+
 export using LL1ParsingTable = std::map<std::pair<NonTerminal, TerminalOrEOL>, std::vector<SymbolOrEOL>>;
 
-using LL1SymbolStack = std::stack<std::pair<SymbolOrEOL, IPTChild*>>;
+using LL1SymbolStack = std::stack<SymbolOrEOL>;
 
 export class LL1Parser : public ParserBase {
     private:
@@ -33,28 +145,25 @@ export class LL1Parser : public ParserBase {
             LL1SymbolStack symbolStack;
             bool assumeEndOfLine = false;
 
-            IPTChild parseTree{ImperfectParseTree(startSymbol)};
-            symbolStack.push(std::make_pair(startSymbol, &parseTree));
+            LL1ParseTree parseTree(startSymbol);
+            symbolStack.push(startSymbol);
 
             while (true) {
                 if (symbolStack.empty()) {
-                    return ParserRejectResult{"Unexpected end of symbol stack", nextTokenIter->formatPosition()};
+                    return ParserRejectResult{"Unexpected end of symbol stack", nextTokenIter->getPosition()};
                 }
 
                 if (nextTokenIter == tokenEnd) {
-                    return ParserRejectResult{"Unexpected end of input", nextTokenIter->formatPosition()};
+                    return ParserRejectResult{"Unexpected end of input", nextTokenIter->getPosition()};
                 }
 
-                const auto& currentStackTop = symbolStack.top();
-                const auto& currentSymbol = currentStackTop.first;
-                const auto& currentPtr = currentStackTop.second;
+                const auto currentSymbol = symbolStack.top();
 
                 if (std::holds_alternative<char>(currentSymbol)) {
                     // The top of symbol stack is EOL
 
-                    
                     symbolStack.pop();
-                    return ParserAcceptResult{std::get<ImperfectParseTree>(parseTree).toParseTree().withoutStartSymbol(), nextTokenIter};
+                    return ParserAcceptResult{parseTree.toParseTree().withoutStartSymbol(), nextTokenIter};
                 }
                 else if (std::holds_alternative<Terminal>(currentSymbol)) {
                     // The top of symbol stack is a terminal
@@ -62,26 +171,17 @@ export class LL1Parser : public ParserBase {
 
                     const auto& stackTerminal = std::get<Terminal>(currentSymbol);
                     if (stackTerminal.matchesToken(*nextTokenIter)) {
-                        if (currentPtr == nullptr) {
-                            throw std::runtime_error("Invalid terminal pointer for terminal: " + std::string{stackTerminal.getName()});
-                        }
-
-                        currentPtr->emplace<Token>(*nextTokenIter);
+                        parseTree.place(*nextTokenIter);
                         nextTokenIter++;
-                        const auto& foo = std::get<Token>(*currentPtr);
                         symbolStack.pop();
                     } else {
-                        return ParserRejectResult{"Unexpected token: " + nextTokenIter->toStringPrint(), nextTokenIter->formatPosition()};
+                        return ParserRejectResult{"LL1 Unexpected token: " + nextTokenIter->toStringPrint(), nextTokenIter->getPosition()};
                     }
                 } else if (std::holds_alternative<NonTerminal>(currentSymbol)) {
                     // The top of symbol stack is a non-terminal
                     // Look up parsing table for production rule
 
-                    const auto& stackNonTerminal = std::get<NonTerminal>(currentSymbol);
-                    if (currentPtr == nullptr || !std::holds_alternative<ImperfectParseTree>(*currentPtr)) {
-                        throw std::runtime_error("Invalid parse tree pointer for non-terminal: " + std::string{stackNonTerminal.getName()});
-                    }
-                    auto& currentParseTree = std::get<ImperfectParseTree>(*currentPtr);
+                    const auto stackNonTerminal = std::get<NonTerminal>(currentSymbol);
 
                     const auto findProduction = [&]()->std::optional<std::vector<SymbolOrEOL>> {
                         if (!assumeEndOfLine && nextTokenIter != tokenEnd) {
@@ -103,44 +203,54 @@ export class LL1Parser : public ParserBase {
 
                     const auto production = findProduction();
                     if (!production.has_value()) {
-                        return ParserRejectResult{"No production found for non-terminal: " + std::string{stackNonTerminal.getName()}, nextTokenIter->formatPosition()};
+                        return ParserRejectResult{"No production found for non-terminal: " + std::string{stackNonTerminal.getName()}, nextTokenIter->getPosition()};
                     }
 
-                    // Pop non-terminal
-                    symbolStack.pop();
-
-                    // Push symbols to temp stack and parse tree
+                    // Push symbols to temp stack
                     LL1SymbolStack tempStack;
-                    for (const auto& symbol : *production) {
+                    for (const auto& symbol : production.value()) {
                         if (std::holds_alternative<Terminal>(symbol)) {
                             const auto& terminalSymbol = std::get<Terminal>(symbol);
-                            const auto& ptr = currentParseTree.addChild(terminalSymbol);
-                            tempStack.push({terminalSymbol, ptr});
+                            tempStack.push(terminalSymbol);
                         } else if (std::holds_alternative<NonTerminal>(symbol)) {
                             const auto& nonTerminalSymbol = std::get<NonTerminal>(symbol);
-                            ImperfectParseTree childParseTree(nonTerminalSymbol);
-                            const auto& ptr = currentParseTree.addChild(childParseTree);
-                            tempStack.push({nonTerminalSymbol, ptr});
+                            tempStack.push(nonTerminalSymbol);
                         } else if (std::holds_alternative<char>(symbol)) {
                             const auto& eolSymbol = std::get<char>(symbol);
-                            tempStack.push({eolSymbol, nullptr});
+                            tempStack.push(eolSymbol);
                         }
                         else {
                             throw std::runtime_error("Unknown symbol type in production");
                         }
                     }
 
+                    // Pop non-terminal
+                    symbolStack.pop();
+
                     // Push symbols to actual stack in reverse order
                     while (!tempStack.empty()) {
                         symbolStack.push(tempStack.top());
                         tempStack.pop();
                     }
+
+                    // Push symbols to parse tree
+                    std::vector<Symbol> product;
+                    for (const auto& symbol : production.value()) {
+                        if (std::holds_alternative<Terminal>(symbol)) {
+                            const auto& terminalSymbol = std::get<Terminal>(symbol);
+                            product.push_back(terminalSymbol);
+                        } else if (std::holds_alternative<NonTerminal>(symbol)) {
+                            const auto& nonTerminalSymbol = std::get<NonTerminal>(symbol);
+                            product.push_back(nonTerminalSymbol);
+                        }
+                    }
+                    parseTree.place(Production{stackNonTerminal, product});
                 }
                 else {
                     throw std::runtime_error("Unknown symbol type in parsing stack");
                 }
             }
 
-            return ParserRejectResult{"Unexpected end of symbol stack", nextTokenIter->formatPosition()};
+            return ParserRejectResult{"Unexpected end of symbol stack", nextTokenIter->getPosition()};
         }
 };

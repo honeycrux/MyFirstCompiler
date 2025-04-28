@@ -85,7 +85,7 @@ export class SLR1Parser : public ParserBase {
 
                 const auto instructionIter = findInstruction();
                 if (!instructionIter.has_value()) {
-                    return ParserRejectResult{"No production found", nextTokenIter->formatPosition()};
+                    return ParserRejectResult{"No production found", nextTokenIter->getPosition()};
                 }
                 const auto& instruction = instructionIter.value();
 
@@ -95,7 +95,7 @@ export class SLR1Parser : public ParserBase {
                     // Push new state to stack
                     const auto newState = std::get<State>(instruction);
                     if (nextTokenIter == tokenEnd) {
-                        return ParserRejectResult{"Unexpected end of input", nextTokenIter->formatPosition()};
+                        return ParserRejectResult{"Unexpected end of input", nextTokenIter->getPosition()};
                     }
                     stateSymbolStack.push(std::make_pair(newState, *nextTokenIter));
                     nextTokenIter++;
@@ -113,20 +113,25 @@ export class SLR1Parser : public ParserBase {
                     ParseTree newParseTree{nonTerminal};
 
                     // Pop symbols from stack
+                    std::stack<std::variant<Token, ParseTree>> tempStack;
                     for (int i = 0; i < symbols.size(); i++) {
                         const auto& symbol = stateSymbolStack.top().second;
-                        newParseTree.addChild(symbol);
+                        tempStack.push(symbol);
                         stateSymbolStack.pop();
+                    }
+                    while (!tempStack.empty()) {
+                        newParseTree.addChild(tempStack.top());
+                        tempStack.pop();
                     }
 
                     // Find new state
                     const auto nextStateIter = parsingTable.find(std::make_pair(getCurrentState(), SymbolOrEOL{nonTerminal}));
                     if (nextStateIter == parsingTable.end()) {
-                        return ParserRejectResult{"Unexpected token: " + (*nextTokenIter).toStringPrint(), nextTokenIter->formatPosition()};
+                        return ParserRejectResult{"SLR1 Unexpected token: " + (*nextTokenIter).toStringPrint(), nextTokenIter->getPosition()};
                     }
                     const auto& nextStateInstruction = nextStateIter->second;
                     if (!std::holds_alternative<State>(nextStateInstruction)) {
-                        return ParserRejectResult{"Unexpected token: " + (*nextTokenIter).toStringPrint(), nextTokenIter->formatPosition()};
+                        return ParserRejectResult{"SLR1 Unexpected token: " + (*nextTokenIter).toStringPrint(), nextTokenIter->getPosition()};
                     }
                     const auto newState = std::get<State>(nextStateInstruction);
 
@@ -137,7 +142,7 @@ export class SLR1Parser : public ParserBase {
 
                     const auto& stackTop = stateSymbolStack.top().second;
                     if (std::holds_alternative<Token>(stackTop)) {
-                        return ParserRejectResult{"Unexpected token: " + std::get<Token>(stackTop).toStringPrint(), nextTokenIter->formatPosition()};
+                        return ParserRejectResult{"SLR1 Unexpected token: " + std::get<Token>(stackTop).toStringPrint(), nextTokenIter->getPosition()};
                     }
                     const auto& parseTree = std::get<ParseTree>(stackTop);
 

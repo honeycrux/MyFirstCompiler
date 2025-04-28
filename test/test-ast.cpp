@@ -102,6 +102,74 @@ TEST_CASE("Type check assignments") {
 
         auto result = blockStmt->startTypeCheck();
         REQUIRE(std::holds_alternative<TypeCheckError>(result));
-        std::cout << std::get<TypeCheckError>(result).message << std::endl;
+    }
+}
+
+TEST_CASE("Type check function call") {
+    SECTION("Function call with correct types") {
+        std::string fakeCode = "int foo(int a, float b) { }";
+        std::string_view fakeCodeView = fakeCode;
+        const auto intType = TokenFactory::findKeywordToken("int", fakeCodeView.begin(), fakeCodeView.begin());
+        const auto floatType = TokenFactory::findKeywordToken("float", fakeCodeView.begin(), fakeCodeView.begin());
+        const auto foo = TokenFactory::getIdentifierToken("foo", fakeCodeView.begin(), fakeCodeView.begin());
+        const auto a = TokenFactory::getIdentifierToken("a", fakeCodeView.begin(), fakeCodeView.begin());
+        const auto b = TokenFactory::getIdentifierToken("b", fakeCodeView.begin(), fakeCodeView.begin());
+
+        std::unique_ptr<AstNode> paramA = std::make_unique<Param>(std::make_unique<Type>(*intType), a, false);
+        std::unique_ptr<AstNode> paramB = std::make_unique<Param>(std::make_unique<Type>(*floatType), b, false);
+        std::vector<std::unique_ptr<AstNode>> params;
+        params.push_back(std::move(paramA));
+        params.push_back(std::move(paramB));
+
+        std::vector<std::unique_ptr<AstNode>> funcBody;
+
+        std::unique_ptr<AstNode> funcDecl = std::make_unique<FuncDef>(
+            std::make_unique<Type>(*intType),
+            foo,
+            std::move(params),
+            std::make_unique<BlockStmt>(std::move(funcBody))
+        );
+
+        auto result = funcDecl->startTypeCheck();
+        REQUIRE(std::holds_alternative<TypeCheckSuccess>(result));
+    }
+
+    SECTION("Function can be called") {
+        std::string fakeCode = "int foo() { } int main() { foo(); }";
+        std::string_view fakeCodeView = fakeCode;
+        const auto intType = TokenFactory::findKeywordToken("int", fakeCodeView.begin(), fakeCodeView.begin());
+        const auto foo = TokenFactory::getIdentifierToken("foo", fakeCodeView.begin(), fakeCodeView.begin());
+        const auto main = TokenFactory::getIdentifierToken("main", fakeCodeView.begin(), fakeCodeView.begin());
+
+        std::vector<std::unique_ptr<AstNode>> params;
+        std::vector<std::unique_ptr<AstNode>> funcBody;
+
+        std::unique_ptr<AstNode> funcDecl = std::make_unique<FuncDef>(
+            std::make_unique<Type>(*intType),
+            foo,
+            std::move(params),
+            std::make_unique<BlockStmt>(std::move(funcBody))
+        );
+
+        std::vector<std::unique_ptr<AstNode>> params2;
+        std::vector<std::unique_ptr<AstNode>> funcBody2;
+        std::vector<std::unique_ptr<AstNode>> args;
+        std::unique_ptr<AstNode> funcCall = std::make_unique<FuncCall>(foo, std::move(args));
+        funcBody2.push_back(std::move(funcCall));
+
+        std::unique_ptr<AstNode> funcDecl2 = std::make_unique<FuncDef>(
+            std::make_unique<Type>(*intType),
+            main,
+            std::move(params2),
+            std::make_unique<BlockStmt>(std::move(funcBody2))
+        );
+
+        std::vector<std::unique_ptr<AstNode>> funcDecls;
+        funcDecls.push_back(std::move(funcDecl));
+        funcDecls.push_back(std::move(funcDecl2));
+        std::unique_ptr<AstNode> start = std::make_unique<Start>(std::move(funcDecls));
+
+        auto result = start->startTypeCheck();
+        REQUIRE(std::holds_alternative<TypeCheckSuccess>(result));
     }
 }

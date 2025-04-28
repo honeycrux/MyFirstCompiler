@@ -76,7 +76,7 @@ export class RecursiveDescentParser : public ParserBase {
                 }
             }
             // std::cout << "[fail] " << nonTerminal.getName() << std::endl;
-            return ParserRejectResult{"No valid production found for non-terminal: " + std::string{nonTerminal.getName()}, tokenIter->formatPosition()};
+            return ParserRejectResult{"No valid production found for non-terminal: " + std::string{nonTerminal.getName()}, tokenIter->getPosition()};
         }
 
     public:

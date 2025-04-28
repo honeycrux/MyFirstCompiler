@@ -7,6 +7,7 @@ module;
 #include <sstream>
 #include <memory>
 #include <numeric>
+#include <algorithm>
 
 export module lexer;
 
@@ -33,8 +34,11 @@ export class Lexer {
             return acceptors;
         }
 
-        static std::string formatPosition(const std::string_view::const_iterator iter, const std::string_view::const_iterator begin) {
-            return " (at position " + std::to_string(std::distance(begin, iter) + 1) + ")";
+        static std::string formatPosition(const std::string_view::const_iterator begin, const std::string_view::const_iterator where) {
+            const int line = std::count(begin, where, '\n') + 1;
+            std::string_view::const_iterator lineStart = std::find_if(std::reverse_iterator<std::string_view::const_iterator>(where), std::reverse_iterator<std::string_view::const_iterator>(begin), [](char c) { return c == '\n'; }).base();
+            const int column = std::distance(lineStart, where) + 1;
+            return std::to_string(line) + ":" + std::to_string(column);
         }
 
     public:
@@ -64,13 +68,13 @@ export class Lexer {
                         RejectResult rejectResult = std::get<RejectResult>(result);
                         bool iterMoved = rejectResult.where != codeIter;
                         if (iterMoved) {
-                            return LexicalError(rejectResult.message + formatPosition(rejectResult.where, code.begin()));
+                            return LexicalError(rejectResult.message + " (" + formatPosition(code.begin(), rejectResult.where) + ")");
                         }
                     }
                 }
                 // 3. Error if no acceptor accepted
                 if (codeIter != codeEnd && !accepted) {
-                    return LexicalError("Unexpected token: " + std::string(1, *codeIter) + formatPosition(codeIter, code.begin()));
+                    return LexicalError("Unexpected token: " + std::string(1, *codeIter) + " (" + formatPosition(code.begin(), codeIter) + ")");
                 }
             }
             return tokens;

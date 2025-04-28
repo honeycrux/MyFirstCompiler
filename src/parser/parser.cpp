@@ -195,13 +195,13 @@ export class Parser {
                     {
                         NonTerminal("VarDecl"),
                         {
-                            { NonTerminal("Type"), NonTerminal("VarList"), getPunctuator(";") }
+                            { NonTerminal("Type"), NonTerminal("VarAssignableList"), getPunctuator(";") }
                         }
                     },
                     {
-                        NonTerminal("VarList"),
+                        NonTerminal("VarAssignableList"),
                         {
-                            { NonTerminal("VarAssignable"), getPunctuator(","), NonTerminal("VarList") },
+                            { NonTerminal("VarAssignable"), getPunctuator(","), NonTerminal("VarAssignableList") },
                             { NonTerminal("VarAssignable") }
                         }
                     },
@@ -258,8 +258,8 @@ export class Parser {
                     {
                         NonTerminal("IfStmt"),
                         {
-                            { getKeyword("if"), getPunctuator("("), NonTerminal("Expr"), getPunctuator(")"), NonTerminal("BlockStmt") },
-                            { getKeyword("if"), getPunctuator("("), NonTerminal("Expr"), getPunctuator(")"), NonTerminal("BlockStmt"), getKeyword("else"), NonTerminal("BlockStmt") }
+                            { getKeyword("if"), getPunctuator("("), NonTerminal("Expr"), getPunctuator(")"), NonTerminal("BlockStmt"), getKeyword("else"), NonTerminal("BlockStmt") },
+                            { getKeyword("if"), getPunctuator("("), NonTerminal("Expr"), getPunctuator(")"), NonTerminal("BlockStmt") }
                         }
                     },
 
@@ -279,7 +279,21 @@ export class Parser {
                     {
                         NonTerminal("ForVarDecl"),
                         {
-                            { NonTerminal("VarList") }
+                            { NonTerminal("VarAssignList") }
+                        }
+                    },
+                    {
+                        NonTerminal("VarAssignList"),
+                        {
+                            { NonTerminal("VarAssign"), getPunctuator(","), NonTerminal("VarAssignList") },
+                            { NonTerminal("VarAssign") },
+                            {}
+                        }
+                    },
+                    {
+                        NonTerminal("VarAssign"),
+                        {
+                            { NonTerminal("Var"), getOperator("="), NonTerminal("Expr") }
                         }
                     },
 
@@ -461,7 +475,7 @@ export class Parser {
                 { NonTerminal("Param"), SimplifyInstruction::RETAIN },
                 { NonTerminal("ParamVar"), SimplifyInstruction::MERGE_UP },
                 { NonTerminal("VarDecl"), SimplifyInstruction::RETAIN },
-                { NonTerminal("VarList"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("VarAssignableList"), SimplifyInstruction::MERGE_UP },
                 { NonTerminal("VarAssignable"), SimplifyInstruction::RETAIN },
                 { NonTerminal("Var"), SimplifyInstruction::RETAIN },
                 { NonTerminal("Type"), SimplifyInstruction::RETAIN },
@@ -471,6 +485,9 @@ export class Parser {
                 { NonTerminal("IfStmt"), SimplifyInstruction::RETAIN },
                 { NonTerminal("WhileStmt"), SimplifyInstruction::RETAIN },
                 { NonTerminal("ForStmt"), SimplifyInstruction::RETAIN },
+                { NonTerminal("ForVarDecl"), SimplifyInstruction::RETAIN },
+                { NonTerminal("VarAssignList"), SimplifyInstruction::MERGE_UP },
+                { NonTerminal("VarAssign"), SimplifyInstruction::RETAIN },
                 { NonTerminal("ReturnStmt"), SimplifyInstruction::RETAIN },
                 { NonTerminal("Expr"), SimplifyInstruction::MERGE_UP },
                 { NonTerminal("AssignExpr"), SimplifyInstruction::RETAIN_IF_MULTIPLE_CHILDREN },
@@ -496,7 +513,8 @@ export class Parser {
                 { NonTerminal("MulOp"), SimplifyInstruction::MERGE_UP },
                 { NonTerminal("UnaryOp"), SimplifyInstruction::MERGE_UP },
                 { NonTerminal("VarConst"), SimplifyInstruction::MERGE_UP },
-                { NonTerminal("Constant"), SimplifyInstruction::RETAIN }
+                { NonTerminal("Constant"), SimplifyInstruction::RETAIN },
+                { NonTerminal("Var'"), SimplifyInstruction::MERGE_UP }
             };
 
             const AstHandlerMap handlerMap{
@@ -632,13 +650,21 @@ export class Parser {
                 },
                 {
                     NonTerminal("ForVarDecl"), [](const SPTChildren& children) {
-                        std::vector<std::unique_ptr<AstNode>> varAssignables;
+                        std::vector<std::unique_ptr<AstNode>> varAssigns;
                         for (int i = 0; i < children.size(); i += 2) {
-                            const auto& varAssignable = std::get<SimpleParseTree>(children[i]);
-                            varAssignables.push_back(varAssignable.toAst());
+                            const auto& varAssign = std::get<SimpleParseTree>(children[i]);
+                            varAssigns.push_back(varAssign.toAst());
                         }
-                        std::unique_ptr<AstNode> forVarDecl = std::make_unique<ForVarDecl>(std::move(varAssignables));
+                        std::unique_ptr<AstNode> forVarDecl = std::make_unique<ForVarDecl>(std::move(varAssigns));
                         return forVarDecl;
+                    }
+                },
+                {
+                    NonTerminal("VarAssign"), [](const SPTChildren& children) {
+                        const auto& var = std::get<SimpleParseTree>(children[0]);
+                        const auto& expr = std::get<SimpleParseTree>(children[2]);
+                        std::unique_ptr<AstNode> varAssign = std::make_unique<VarAssign>(var.toAst(), expr.toAst());
+                        return varAssign;
                     }
                 },
                 {
@@ -846,9 +872,9 @@ export class Parser {
             else if (std::holds_alternative<ParserAcceptResult>(result)) {
                 const auto acceptResult = std::get<ParserAcceptResult>(result);
                 if (acceptResult.next != tokens.end()) {
-                    return ParserError("Unexpected token: " + acceptResult.next->toStringPrint() + " (" + acceptResult.next->formatPosition() + ")");
+                    return ParserError("Error: parsing ended before the end of program (" + acceptResult.next->getPosition() + ")");
                 }
-                // std::cout << acceptResult.parseTree.toString() << std::endl;
+                std::cout << acceptResult.parseTree.toString() << std::endl;
                 const auto simplified = acceptResult.parseTree.simplify(simplifyInstructionMap, handlerMap);
                 std::cout << simplified.toString() << std::endl;
                 const auto ast = simplified.toAst();

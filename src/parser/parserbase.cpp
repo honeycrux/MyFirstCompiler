@@ -64,15 +64,18 @@ class SimpleParseTree {
 
         std::string toString() const {
             std::ostringstream oss;
+            const auto visitor = overloads{
+                [&oss](const Token& token) { oss << token.toStringPrint(); },
+                [&oss](const SimpleParseTree& parseTree) { oss << parseTree.toString(); }
+            };
             oss << nonTerminal.getName() << "( ";
-            for (const auto& child : children) {
-                oss << std::visit(overloads{
-                    [&oss](const Token& token) { oss << token.toStringPrint(); return ""; },
-                    [&oss](const SimpleParseTree& parseTree) { oss << parseTree.toString(); return ""; }
-                }, child);
-                oss << " ";
+            for (auto child = children.begin(); child != children.end(); ++child) {
+                if (child != children.begin()) {
+                    oss << ", ";
+                }
+                std::visit(visitor, *child);
             }
-            oss << ")";
+            oss << " )";
             return oss.str();
         }
 };
@@ -148,12 +151,8 @@ class ParseTree {
         std::string toString() const {
             std::ostringstream oss;
             const auto visitor = overloads{
-                [&oss](const Token& token) {
-                    oss << token.toStringPrint();
-                },
-                [&oss](const ParseTree& parseTree) {
-                    oss << parseTree.toString();
-                }
+                [&oss](const Token& token) { oss << token.toStringPrint(); },
+                [&oss](const ParseTree& parseTree) { oss << parseTree.toString(); }
             };
             oss << nonTerminal.getName() << "( ";
             for (auto child = children.begin(); child != children.end(); ++child) {
@@ -164,60 +163,6 @@ class ParseTree {
             }
             oss << " )";
             return oss.str();
-        }
-};
-
-export class ImperfectParseTree; // forward declaration
-
-export using IPTChild = std::variant<Terminal, Token, ImperfectParseTree>;
-
-class ImperfectParseTree {
-    private:
-        const NonTerminal nonTerminal;
-        std::vector<IPTChild> children;
-
-    public:
-        ImperfectParseTree(const NonTerminal& nonTerminal) : nonTerminal(nonTerminal) {}
-
-        NonTerminal getNonTerminal() const {
-            return nonTerminal;
-        }
-
-        IPTChild* addChild(const IPTChild& child) {
-            children.push_back(child);
-            return children.data() + children.size() - 1;
-        }
-
-        ParseTree toParseTree() const {
-            ParseTree parseTree(nonTerminal);
-            for (const auto& child : children) {
-                if (std::holds_alternative<Token>(child)) {
-                    parseTree.addChild(std::get<Token>(child));
-                } else if (std::holds_alternative<ImperfectParseTree>(child)) {
-                    parseTree.addChild(std::get<ImperfectParseTree>(child).toParseTree());
-                } else if (std::holds_alternative<Terminal>(child)) {
-                    // It is assumed that all tokens become terminals at this point
-                    throw std::runtime_error("Cannot add terminal to parse tree");
-                } else {
-                    throw std::runtime_error("Unknown child type in parse tree");
-                }
-            }
-            return parseTree;
-        }
-
-        void printSummary() const {
-            std::cout << "ImperfectParseTree: " << nonTerminal.getName() << std::endl;
-            for (const auto& child : children) {
-                if (std::holds_alternative<Token>(child)) {
-                    std::cout << "  Token: " << std::get<Token>(child).toStringPrint() << std::endl;
-                } else if (std::holds_alternative<ImperfectParseTree>(child)) {
-                    std::get<ImperfectParseTree>(child).printSummary();
-                } else if (std::holds_alternative<Terminal>(child)) {
-                    std::cout << "  Terminal: " << std::get<Terminal>(child).getName() << std::endl;
-                } else {
-                    throw std::runtime_error("Unknown child type in imperfect parse tree");
-                }
-            }
         }
 };
 

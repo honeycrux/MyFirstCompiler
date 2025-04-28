@@ -8,7 +8,6 @@ module;
 #include <variant>
 #include <optional>
 #include <map>
-#include <iostream>
 
 export module ast;
 
@@ -24,6 +23,16 @@ export enum DataType {
     ANY_T,
     FUNC_T,
     NONE_T
+};
+
+const std::map<DataType, std::string_view> dataTypeNamesMap {
+    {DataType::INT_T, "int"},
+    {DataType::FLOAT_T, "float"},
+    {DataType::STR_T, "str"},
+    {DataType::BOOL_T, "bool"},
+    {DataType::ANY_T, "any"},
+    {DataType::FUNC_T, "func"},
+    {DataType::NONE_T, "none"}
 };
 
 export struct TypeCheckSuccess {
@@ -129,6 +138,25 @@ export class AstNode {
 
         bool typeEquals(const DataType type1, const DataType type2) const {
             return type1 == type2 || type1 == ANY_T || type2 == ANY_T;
+        }
+
+        std::string getTypeName(const DataType& type) const {
+            auto it = dataTypeNamesMap.find(type);
+            if (it != dataTypeNamesMap.end()) {
+                return std::string(it->second);
+            }
+            return "unknown";
+        }
+
+        SymbolTable::iterator findSymbol(const SymbolTableNode& symbolTableNode, const std::string& name) const {
+            auto it = symbolTableNode.table->find(name);
+            if (it != symbolTableNode.table->end()) {
+                return it;
+            }
+            if (symbolTableNode.parent != nullptr) {
+                return findSymbol(*symbolTableNode.parent, name);
+            }
+            return symbolTableNode.table->end();
         }
 
         // std::string openString() const {
@@ -375,9 +403,8 @@ export class VarAssignable : public AstNode {
                     return valueResult;
                 }
                 const auto valueType = std::get<TypeCheckSuccess>(valueResult).type;
-                std::cout << "VarAssignable: " << varType << " = " << valueType << std::endl;
                 if (!typeEquals(varType, valueType)) {
-                    return TypeCheckError{ "Type mismatch: " + std::to_string(varType) + " and " + std::to_string(valueType), getWhere() };
+                    return TypeCheckError{ "Type mismatch: " + getTypeName(varType) + " and " + getTypeName(valueType), getWhere() };
                 }
                 return TypeCheckSuccess{ valueType };
             }
@@ -395,7 +422,7 @@ export class Var : public AstNode {
         ~Var() = default;
 
         std::string getWhere() const override {
-            return id.formatPosition();
+            return id.getPosition();
         }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
@@ -410,7 +437,7 @@ export class Var : public AstNode {
                 SymbolTableEntry entry{id.getValue(), assignedType, arrayIndex.has_value()};
                 symbolTableNode.table->emplace(id.getValue(), entry);
             }
-            auto it = symbolTableNode.table->find(id.getValue());
+            auto it = findSymbol(symbolTableNode, id.getValue());
             if (it != symbolTableNode.table->end()) {
                 return TypeCheckSuccess{ it->second.type }; // has type
             }
@@ -427,7 +454,7 @@ export class Type : public AstNode {
         ~Type() = default;
 
         std::string getWhere() const override {
-            return type.formatPosition();
+            return type.getPosition();
         }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
@@ -457,7 +484,7 @@ export class Constant : public AstNode {
         ~Constant() = default;
 
         std::string getWhere() const override {
-            return value.formatPosition();
+            return value.getPosition();
         }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
@@ -711,21 +738,66 @@ export class ForStmt : public AstNode {
         }
 }; // type?: Token, forVarDecl: AstNode[], condExpr: AstNode, incrExpr: AstNode
 
-export class ForVarDecl : public AstNode {
+export class VarAssign : public AstNode {
     private:
-        std::vector<std::unique_ptr<AstNode>> varAssignables;
+        std::unique_ptr<AstNode> var;
+        std::unique_ptr<AstNode> expr;
 
     public:
-        ForVarDecl(std::vector<std::unique_ptr<AstNode>> varAssignables): AstNode("ForVarDecl"), varAssignables(std::move(varAssignables)) {}
-        ~ForVarDecl() = default;
+        VarAssign(std::unique_ptr<AstNode> var, std::unique_ptr<AstNode> expr)
+            : AstNode("VarAssignable"), var(std::move(var)), expr(std::move(expr)) {}
+        ~VarAssign() = default;
 
         std::string getWhere() const override {
-            return varAssignables[0]->getWhere();
+            return var->getWhere();
         }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
-            for (const auto& var : varAssignables) {
+            const auto varGeQ = var->toQuadruples(globalLabelId);
+            const auto varResult = varGeQ.result;
+
+            const auto valueGeQ = expr->toQuadruples(globalLabelId, intermediateId + 1);
+            const auto valueQuads = valueGeQ.quads;
+            const auto valueResult = valueGeQ.result;
+            quads.insert(quads.end(), valueQuads.begin(), valueQuads.end());
+            quads.emplace_back(Quadruple{"=", valueResult, "", varResult});
+            return { quads, "" };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto varResult = var->typeCheck(symbolTableNode, assignedType);
+            if (std::holds_alternative<TypeCheckError>(varResult)) {
+                return varResult;
+            }
+            const auto varType = std::get<TypeCheckSuccess>(varResult).type;
+            const auto valueResult = expr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(valueResult)) {
+                return valueResult;
+            }
+            const auto valueType = std::get<TypeCheckSuccess>(valueResult).type;
+            if (!typeEquals(varType, valueType)) {
+                return TypeCheckError{ "Type mismatch: " + getTypeName(varType) + " and " + getTypeName(valueType), getWhere() };
+            }
+            return TypeCheckSuccess{ valueType };
+        }
+}; // var: AstNode, expr: AstNode
+
+export class ForVarDecl : public AstNode {
+    private:
+        std::vector<std::unique_ptr<AstNode>> varAssigns;
+
+    public:
+        ForVarDecl(std::vector<std::unique_ptr<AstNode>> varAssigns): AstNode("ForVarDecl"), varAssigns(std::move(varAssigns)) {}
+        ~ForVarDecl() = default;
+
+        std::string getWhere() const override {
+            return varAssigns[0]->getWhere();
+        }
+
+        GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
+            Quadruples quads;
+            for (const auto& var : varAssigns) {
                 const auto varGeQ = var->toQuadruples(globalLabelId);
                 const auto varQuads = varGeQ.quads;
                 quads.insert(quads.end(), varQuads.begin(), varQuads.end());
@@ -740,14 +812,14 @@ export class ForVarDecl : public AstNode {
             //         return typeResult;
             //     }
             //     const auto typeType = std::get<TypeCheckSuccess>(typeResult).type;
-            //     for (const auto& var : varAssignables) {
+            //     for (const auto& var : varAssigns) {
             //         const auto result = var->typeCheck(symbolTableNode, typeType);
             //         if (std::holds_alternative<TypeCheckError>(result)) {
             //             return result;
             //         }
             //     }
             // }
-            for (const auto& var : varAssignables) {
+            for (const auto& var : varAssigns) {
                 const auto result = var->typeCheck(symbolTableNode, NONE_T);
                 if (std::holds_alternative<TypeCheckError>(result)) {
                     return result;
@@ -755,7 +827,7 @@ export class ForVarDecl : public AstNode {
             }
             return TypeCheckSuccess{ NONE_T };
         }
-}; // type: Token, varAssignables: AstNode[]
+}; // type: Token, varAssigns: AstNode[]
 
 export class ReturnStmt : public AstNode {
     private:
@@ -832,7 +904,7 @@ export class AssignExpr : public AstNode {
             }
             const auto valueType = std::get<TypeCheckSuccess>(valueResult).type;
             if (!typeEquals(varType, valueType)) {
-                return TypeCheckError{ "Type mismatch: " + std::to_string(varType) + " and " + std::to_string(valueType), getWhere() };
+                return TypeCheckError{ "Type mismatch: " + getTypeName(varType) + " and " + getTypeName(valueType), getWhere() };
             }
             return TypeCheckSuccess{ valueType };
         }
@@ -1240,7 +1312,7 @@ export class AddExpr : public AstNode {
                 checkType(lexprType, {INT_T, FLOAT_T}) && checkType(rexprType, {INT_T, FLOAT_T}) ||
                 checkType(lexprType, {STR_T}) && checkType(rexprType, {STR_T})
             )) {
-                return TypeCheckError{ "Cannot add these two types", getWhere() };
+                return TypeCheckError{ "Cannot add types " + getTypeName(lexprType) + " and " + getTypeName(rexprType), getWhere() };
             }
             if (lexprType == FLOAT_T || rexprType == FLOAT_T) {
                 return TypeCheckSuccess{ FLOAT_T };
@@ -1557,7 +1629,7 @@ export class FuncCall : public AstNode {
         ~FuncCall() = default;
 
         std::string getWhere() const override {
-            return id.formatPosition();
+            return id.getPosition();
         }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
@@ -1572,13 +1644,13 @@ export class FuncCall : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto entryIter = symbolTableNode.table->find(id.getValue());
+            const auto entryIter = findSymbol(symbolTableNode, id.getValue());
             if (entryIter == symbolTableNode.table->end()) {
-                return TypeCheckError{ "Function not found", id.formatPosition() };
+                return TypeCheckError{ "Function not found", id.getPosition() };
             }
             const auto& entry = entryIter->second;
             if (entry.type != FUNC_T) {
-                return TypeCheckError{ "Identifier is not a function", id.formatPosition() };
+                return TypeCheckError{ "Identifier is not a function", id.getPosition() };
             }
             for (const auto& arg : exprs) {
                 const auto argResult = arg->typeCheck(symbolTableNode, NONE_T);
