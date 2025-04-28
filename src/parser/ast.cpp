@@ -7,11 +7,60 @@ module;
 #include <sstream>
 #include <variant>
 #include <optional>
+#include <map>
+#include <iostream>
 
 export module ast;
 
 import token;
 import symbol;
+import terminalfactory;
+
+export enum DataType {
+    INT_T,
+    FLOAT_T,
+    STR_T,
+    BOOL_T,
+    ANY_T,
+    FUNC_T,
+    NONE_T
+};
+
+export struct TypeCheckSuccess {
+    DataType type;
+};
+export struct TypeCheckError {
+    std::string message;
+    std::string where;
+};
+export using TypeCheckResult = std::variant<TypeCheckSuccess, TypeCheckError>;
+
+export struct SymbolTableEntry {
+    std::string name;
+    DataType type;
+    bool isArray;
+
+    SymbolTableEntry(const std::string& name, DataType type, bool isArray)
+        : name(name), type(type), isArray(isArray) {}
+};
+
+export using SymbolTable = std::map<std::string, SymbolTableEntry>;
+
+export struct SymbolTableNode {
+    SymbolTable* table;
+    int scope;
+    const SymbolTableNode* parent;
+
+    SymbolTableNode(SymbolTable* table)
+        : table(table), scope(0), parent(nullptr) {}
+
+    SymbolTableNode(SymbolTable* table, int scope, const SymbolTableNode& parent)
+        : table(table), scope(scope), parent(&parent) {}
+
+    SymbolTableNode createChild(SymbolTable* childTable) const {
+        return SymbolTableNode{ childTable, scope + 1, *this };
+    }
+};
 
 export struct Quadruple {
     std::string op;
@@ -21,7 +70,7 @@ export struct Quadruple {
 
     std::string toString() const {
         std::ostringstream oss;
-        oss << op << " " << arg1 << " " << arg2 << " " << result;
+        oss << "( " << op << ", " << arg1 << ", " << arg2 << ", " << result << " )";
         return oss.str();
     }
 };
@@ -66,6 +115,22 @@ export class AstNode {
             return label;
         }
 
+        bool checkType(const DataType type, const std::vector<DataType>& allowedTypes) const {
+            for (const auto& allowedType : allowedTypes) {
+                if (type == allowedType) {
+                    return true;
+                }
+            }
+            if (type == ANY_T) {
+                return true;
+            }
+            return false;
+        }
+
+        bool typeEquals(const DataType type1, const DataType type2) const {
+            return type1 == type2 || type1 == ANY_T || type2 == ANY_T;
+        }
+
         // std::string openString() const {
         //     std::ostringstream oss;
         //     oss << name << "( ";
@@ -93,6 +158,8 @@ export class AstNode {
 
         // virtual std::string toString() const = 0;
 
+        virtual std::string getWhere() const = 0;
+
         virtual GeQ toQuadruples(int& globalLabelId, int intermediateId = 0) const = 0;
 
         std::string toQuadrupleString() const {
@@ -108,18 +175,27 @@ export class AstNode {
             }
             return oss.str();
         }
+
+        virtual TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const = 0;
+
+        TypeCheckResult startTypeCheck() const {
+            SymbolTable symbolTable{}; // starting table
+            SymbolTableNode symbolTableNode{&symbolTable};
+            return this->typeCheck(symbolTableNode, NONE_T);
+        }
 };
 
-export using AstChildren = std::vector<std::variant<Token, std::unique_ptr<AstNode>>>;
-export using AstHandler = std::function<std::unique_ptr<AstNode>(const AstChildren& children)>;
-
-export class DeclList : public AstNode {
+export class Start : public AstNode {
     private:
         std::vector<std::unique_ptr<AstNode>> declarations;
 
     public:
-        DeclList(std::vector<std::unique_ptr<AstNode>> declarations): AstNode("DeclList"), declarations(std::move(declarations)) {}
-        ~DeclList() = default;
+        Start(std::vector<std::unique_ptr<AstNode>> declarations): AstNode("Start"), declarations(std::move(declarations)) {}
+        ~Start() = default;
+
+        std::string getWhere() const override {
+            return declarations[0]->getWhere();
+        }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
@@ -130,19 +206,33 @@ export class DeclList : public AstNode {
             }
             return { quads, "" };
         }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            for (const auto& decl : declarations) {
+                const auto result = decl->typeCheck(symbolTableNode, NONE_T);
+                if (std::holds_alternative<TypeCheckError>(result)) {
+                    return result;
+                }
+            }
+            return TypeCheckSuccess{ NONE_T };
+        }
 }; // declarations: AstNode[]
 
 export class FuncDef : public AstNode {
     private:
-        Token type;
+        std::unique_ptr<AstNode> type;
         Token id;
         std::vector<std::unique_ptr<AstNode>> params;
         std::unique_ptr<AstNode> body;
 
     public:
-        FuncDef(Token type, Token id, std::vector<std::unique_ptr<AstNode>> params, std::unique_ptr<AstNode> body)
-            : AstNode("FuncDef"), type(type), id(id), params(std::move(params)), body(std::move(body)) {}
+        FuncDef(std::unique_ptr<AstNode> type, Token id, std::vector<std::unique_ptr<AstNode>> params, std::unique_ptr<AstNode> body)
+            : AstNode("FuncDef"), type(std::move(type)), id(id), params(std::move(params)), body(std::move(body)) {}
         ~FuncDef() = default;
+
+        std::string getWhere() const override {
+            return type->getWhere();
+        }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
@@ -156,31 +246,67 @@ export class FuncDef : public AstNode {
             quads.emplace_back(Quadruple{"ENDFUNC", id.getValue(), "", ""});
             return { quads, "" };
         }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            SymbolTable symbolTable{};
+            SymbolTableNode newSymbolTableNode = symbolTableNode.createChild(&symbolTable);
+            const auto typeResult = type->typeCheck(newSymbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(typeResult)) {
+                return typeResult;
+            }
+            symbolTableNode.table->emplace(id.getValue(), SymbolTableEntry{id.getValue(), FUNC_T, false});
+            for (const auto& param : params) {
+                const auto result = param->typeCheck(newSymbolTableNode, NONE_T);
+                if (std::holds_alternative<TypeCheckError>(result)) {
+                    return result;
+                }
+            }
+            return body->typeCheck(newSymbolTableNode, NONE_T);
+        }
 }; // type: Token, id: Token, params: AstNode[], body: AstNode
 
 export class Param : public AstNode {
     private:
-        Token type;
+        std::unique_ptr<AstNode> type;
         Token id;
         bool array;
 
     public:
-        Param(Token type, Token id, bool array): AstNode("Param"), type(type), id(id), array(array) {}
+        Param(std::unique_ptr<AstNode> type, Token id, bool array): AstNode("Param"), type(std::move(type)), id(id), array(array) {}
         ~Param() = default;
+
+        std::string getWhere() const override {
+            return type->getWhere();
+        }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             return { {}, id.getValue() };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto typeResult = type->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(typeResult)) {
+                return typeResult;
+            }
+            const auto typeType = std::get<TypeCheckSuccess>(typeResult).type;
+            SymbolTableEntry entry{id.getValue(), typeType, array};
+            symbolTableNode.table->emplace(id.getValue(), entry);
+            return TypeCheckSuccess{ NONE_T };
         }
 }; // type: Token, id: Token, array: bool
 
 export class VarDecl : public AstNode {
     private:
-        Token type;
+        std::unique_ptr<AstNode> type;
         std::vector<std::unique_ptr<AstNode>> varAssignables;
 
     public:
-        VarDecl(Token type, std::vector<std::unique_ptr<AstNode>> varAssignables): AstNode("VarDecl"), type(type), varAssignables(std::move(varAssignables)) {}
+        VarDecl(std::unique_ptr<AstNode> type, std::vector<std::unique_ptr<AstNode>> varAssignables): AstNode("VarDecl"), type(std::move(type)), varAssignables(std::move(varAssignables)) {}
         ~VarDecl() = default;
+
+        std::string getWhere() const override {
+            return type->getWhere();
+        }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
@@ -190,6 +316,21 @@ export class VarDecl : public AstNode {
                 quads.insert(quads.end(), varQuads.begin(), varQuads.end());
             }
             return { quads, "" };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto typeResult = type->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(typeResult)) {
+                return typeResult;
+            }
+            const auto typeType = std::get<TypeCheckSuccess>(typeResult).type;
+            for (const auto& var : varAssignables) {
+                const auto result = var->typeCheck(symbolTableNode, typeType);
+                if (std::holds_alternative<TypeCheckError>(result)) {
+                    return result;
+                }
+            }
+            return TypeCheckSuccess{ NONE_T };
         }
 }; // type: Token, varAssignables: AstNode[]
 
@@ -202,6 +343,10 @@ export class VarAssignable : public AstNode {
         VarAssignable(std::unique_ptr<AstNode> var, std::optional<std::unique_ptr<AstNode>> expr)
             : AstNode("VarAssignable"), var(std::move(var)), expr(std::move(expr)) {}
         ~VarAssignable() = default;
+
+        std::string getWhere() const override {
+            return var->getWhere();
+        }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
@@ -217,6 +362,27 @@ export class VarAssignable : public AstNode {
             }
             return { quads, "" };
         }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto varResult = var->typeCheck(symbolTableNode, assignedType);
+            if (std::holds_alternative<TypeCheckError>(varResult)) {
+                return varResult;
+            }
+            const auto varType = std::get<TypeCheckSuccess>(varResult).type;
+            if (expr) {
+                const auto valueResult = (*expr)->typeCheck(symbolTableNode, NONE_T);
+                if (std::holds_alternative<TypeCheckError>(valueResult)) {
+                    return valueResult;
+                }
+                const auto valueType = std::get<TypeCheckSuccess>(valueResult).type;
+                std::cout << "VarAssignable: " << varType << " = " << valueType << std::endl;
+                if (!typeEquals(varType, valueType)) {
+                    return TypeCheckError{ "Type mismatch: " + std::to_string(varType) + " and " + std::to_string(valueType), getWhere() };
+                }
+                return TypeCheckSuccess{ valueType };
+            }
+            return TypeCheckSuccess{ NONE_T };
+        }
 }; // var: AstNode, expr?: AstNode
 
 export class Var : public AstNode {
@@ -228,11 +394,27 @@ export class Var : public AstNode {
         Var(Token id, std::optional<Token> arrayIndex): AstNode("Var"), id(id), arrayIndex(arrayIndex) {}
         ~Var() = default;
 
+        std::string getWhere() const override {
+            return id.formatPosition();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             if (arrayIndex) {
                 return { {}, id.getValue() + "[" + arrayIndex->getValue() + "]" };
             }
             return { {}, id.getValue() };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            if (assignedType != NONE_T) {
+                SymbolTableEntry entry{id.getValue(), assignedType, arrayIndex.has_value()};
+                symbolTableNode.table->emplace(id.getValue(), entry);
+            }
+            auto it = symbolTableNode.table->find(id.getValue());
+            if (it != symbolTableNode.table->end()) {
+                return TypeCheckSuccess{ it->second.type }; // has type
+            }
+            return TypeCheckError{ "Variable not found: " + id.getValue(), getWhere() };
         }
 }; // id: Token, arrayIndex?: Token
 
@@ -244,8 +426,25 @@ export class Type : public AstNode {
         Type(Token type): AstNode("Type"), type(type) {}
         ~Type() = default;
 
+        std::string getWhere() const override {
+            return type.formatPosition();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             return { {}, type.getValue() };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            if (TerminalFactory::getKeyword("int").matchesToken(type)) {
+                return TypeCheckSuccess{ INT_T };
+            }
+            else if (TerminalFactory::getKeyword("float").matchesToken(type)) {
+                return TypeCheckSuccess{ FLOAT_T };
+            }
+            else if (TerminalFactory::getKeyword("str").matchesToken(type)) {
+                return TypeCheckSuccess{ STR_T };
+            }
+            return TypeCheckError{ "Invalid type", getWhere() };
         }
 }; // type: Token
 
@@ -257,8 +456,25 @@ export class Constant : public AstNode {
         Constant(Token value): AstNode("Constant"), value(value) {}
         ~Constant() = default;
 
+        std::string getWhere() const override {
+            return value.formatPosition();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             return { {}, value.getValue() };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            if (value.getType() == TokenType::INTEGER) {
+                return TypeCheckSuccess{ INT_T };
+            }
+            else if (value.getType() == TokenType::FLOAT) {
+                return TypeCheckSuccess{ FLOAT_T };
+            }
+            else if (value.getType() == TokenType::STRING) {
+                return TypeCheckSuccess{ STR_T };
+            }
+            return TypeCheckError{ "Invalid constant type", getWhere() };
         }
 }; // value: Token
 
@@ -270,6 +486,10 @@ export class BlockStmt : public AstNode {
         BlockStmt(std::vector<std::unique_ptr<AstNode>> stmts): AstNode("BlockStmt"), statements(std::move(stmts)) {}
         ~BlockStmt() = default;
 
+        std::string getWhere() const override {
+            return statements[0]->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             for (const auto& stmt : statements) {
@@ -278,6 +498,18 @@ export class BlockStmt : public AstNode {
                 quads.insert(quads.end(), stmtQuads.begin(), stmtQuads.end());
             }
             return { quads, "" };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            SymbolTable symbolTable{};
+            SymbolTableNode newSymbolTableNode = symbolTableNode.createChild(&symbolTable);
+            for (const auto& stmt : statements) {
+                const auto result = stmt->typeCheck(newSymbolTableNode, NONE_T);
+                if (std::holds_alternative<TypeCheckError>(result)) {
+                    return result;
+                }
+            }
+            return TypeCheckSuccess{ NONE_T };
         }
 }; // stmts: AstNode[]
 
@@ -291,6 +523,10 @@ export class IfStmt : public AstNode {
         IfStmt(std::unique_ptr<AstNode> condExpr, std::unique_ptr<AstNode> thenBody, std::optional<std::unique_ptr<AstNode>> elseBody)
             : AstNode("IfStmt"), condExpr(std::move(condExpr)), thenBody(std::move(thenBody)), elseBody(std::move(elseBody)) {}
         ~IfStmt() = default;
+
+        std::string getWhere() const override {
+            return condExpr->getWhere();
+        }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
@@ -323,6 +559,29 @@ export class IfStmt : public AstNode {
             }
             return { quads, "" };
         }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            SymbolTable symbolTable{};
+            SymbolTableNode newSymbolTableNode = symbolTableNode.createChild(&symbolTable);
+            const auto condResult = condExpr->typeCheck(newSymbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(condResult)) {
+                return condResult;
+            }
+            if (!checkType(std::get<TypeCheckSuccess>(condResult).type, {BOOL_T, INT_T})) {
+                return TypeCheckError{ "Condition must be boolean", condExpr->getWhere() };
+            }
+            const auto thenResult = thenBody->typeCheck(newSymbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(thenResult)) {
+                return thenResult;
+            }
+            if (elseBody) {
+                const auto elseResult = (*elseBody)->typeCheck(newSymbolTableNode, NONE_T);
+                if (std::holds_alternative<TypeCheckError>(elseResult)) {
+                    return elseResult;
+                }
+            }
+            return TypeCheckSuccess{ NONE_T };
+        }
 }; // condExpr: AstNode, thenBody: AstNode, elseBody: AstNode
 
 export class WhileStmt : public AstNode {
@@ -334,6 +593,10 @@ export class WhileStmt : public AstNode {
         WhileStmt(std::unique_ptr<AstNode> condExpr, std::unique_ptr<AstNode> body)
             : AstNode("WhileStmt"), condExpr(std::move(condExpr)), body(std::move(body)) {}
         ~WhileStmt() = default;
+
+        std::string getWhere() const override {
+            return condExpr->getWhere();
+        }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
@@ -357,19 +620,40 @@ export class WhileStmt : public AstNode {
 
             return { quads, "" };
         }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            SymbolTable symbolTable{};
+            SymbolTableNode newSymbolTableNode = symbolTableNode.createChild(&symbolTable);
+            const auto condResult = condExpr->typeCheck(newSymbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(condResult)) {
+                return condResult;
+            }
+            if (!checkType(std::get<TypeCheckSuccess>(condResult).type, {BOOL_T, INT_T})) {
+                return TypeCheckError{ "Condition must be boolean", condExpr->getWhere() };
+            }
+            const auto bodyResult = body->typeCheck(newSymbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(bodyResult)) {
+                return bodyResult;
+            }
+            return TypeCheckSuccess{ NONE_T };
+        }
 }; // condExpr: AstNode, body: AstNode
 
 export class ForStmt : public AstNode {
     private:
-        std::optional<Token> type;
-        std::vector<std::unique_ptr<AstNode>> forVarDecl;
+        std::unique_ptr<AstNode> forVarDecl;
         std::unique_ptr<AstNode> condExpr;
         std::unique_ptr<AstNode> incrExpr;
+        std::unique_ptr<AstNode> body;
 
     public:
-        ForStmt(std::optional<Token> type, std::vector<std::unique_ptr<AstNode>> forVarDecl, std::unique_ptr<AstNode> condExpr, std::unique_ptr<AstNode> incrExpr)
-            : AstNode("ForStmt"), type(type), forVarDecl(std::move(forVarDecl)), condExpr(std::move(condExpr)), incrExpr(std::move(incrExpr)) {}
+        ForStmt(std::unique_ptr<AstNode> forVarDecl, std::unique_ptr<AstNode> condExpr, std::unique_ptr<AstNode> incrExpr, std::unique_ptr<AstNode> body)
+            : AstNode("ForStmt"), forVarDecl(std::move(forVarDecl)), condExpr(std::move(condExpr)), incrExpr(std::move(incrExpr)), body(std::move(body)) {}
         ~ForStmt() = default;
+
+        std::string getWhere() const override {
+            return forVarDecl->getWhere();
+        }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
@@ -377,11 +661,9 @@ export class ForStmt : public AstNode {
             const auto label2 = getLabel(globalLabelId);
             const auto label3 = getLabel(globalLabelId);
 
-            for (const auto& var : forVarDecl) {
-                const auto varGeQ = var->toQuadruples(globalLabelId);
-                const auto varQuads = varGeQ.quads;
-                quads.insert(quads.end(), varQuads.begin(), varQuads.end());
-            }
+            const auto varGeQ = forVarDecl->toQuadruples(globalLabelId);
+            const auto varQuads = varGeQ.quads;
+            quads.insert(quads.end(), varQuads.begin(), varQuads.end());
 
             quads.emplace_back(label1);
             const auto condGeQ = condExpr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -390,6 +672,9 @@ export class ForStmt : public AstNode {
             quads.emplace_back(Quadruple{"goto", "", "", label3.getName()});
 
             quads.emplace_back(label2);
+            const auto bodyGeQ = body->toQuadruples(globalLabelId);
+            const auto bodyQuads = bodyGeQ.quads;
+            quads.insert(quads.end(), bodyQuads.begin(), bodyQuads.end());
             const auto incrGeQ = incrExpr->toQuadruples(globalLabelId);
             const auto incrQuads = incrGeQ.quads;
             quads.insert(quads.end(), incrQuads.begin(), incrQuads.end());
@@ -400,16 +685,43 @@ export class ForStmt : public AstNode {
             return { quads, "" };
         }
 
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            SymbolTable symbolTable{};
+            SymbolTableNode newSymbolTableNode = symbolTableNode.createChild(&symbolTable);
+            const auto varResult = forVarDecl->typeCheck(newSymbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(varResult)) {
+                return varResult;
+            }
+            const auto condResult = condExpr->typeCheck(newSymbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(condResult)) {
+                return condResult;
+            }
+            if (!checkType(std::get<TypeCheckSuccess>(condResult).type, {BOOL_T, INT_T})) {
+                return TypeCheckError{ "Condition must be boolean", condExpr->getWhere() };
+            }
+            const auto incrResult = incrExpr->typeCheck(newSymbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(incrResult)) {
+                return incrResult;
+            }
+            const auto bodyResult = body->typeCheck(newSymbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(bodyResult)) {
+                return bodyResult;
+            }
+            return TypeCheckSuccess{ NONE_T };
+        }
 }; // type?: Token, forVarDecl: AstNode[], condExpr: AstNode, incrExpr: AstNode
 
 export class ForVarDecl : public AstNode {
     private:
-        Token type;
         std::vector<std::unique_ptr<AstNode>> varAssignables;
 
     public:
-        ForVarDecl(Token type, std::vector<std::unique_ptr<AstNode>> varAssignables): AstNode("ForVarDecl"), type(type), varAssignables(std::move(varAssignables)) {}
+        ForVarDecl(std::vector<std::unique_ptr<AstNode>> varAssignables): AstNode("ForVarDecl"), varAssignables(std::move(varAssignables)) {}
         ~ForVarDecl() = default;
+
+        std::string getWhere() const override {
+            return varAssignables[0]->getWhere();
+        }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
@@ -419,6 +731,29 @@ export class ForVarDecl : public AstNode {
                 quads.insert(quads.end(), varQuads.begin(), varQuads.end());
             }
             return { quads, "" };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            // if (type) {
+            //     const auto typeResult = (*type)->typeCheck(symbolTableNode, NONE_T);
+            //     if (std::holds_alternative<TypeCheckError>(typeResult)) {
+            //         return typeResult;
+            //     }
+            //     const auto typeType = std::get<TypeCheckSuccess>(typeResult).type;
+            //     for (const auto& var : varAssignables) {
+            //         const auto result = var->typeCheck(symbolTableNode, typeType);
+            //         if (std::holds_alternative<TypeCheckError>(result)) {
+            //             return result;
+            //         }
+            //     }
+            // }
+            for (const auto& var : varAssignables) {
+                const auto result = var->typeCheck(symbolTableNode, NONE_T);
+                if (std::holds_alternative<TypeCheckError>(result)) {
+                    return result;
+                }
+            }
+            return TypeCheckSuccess{ NONE_T };
         }
 }; // type: Token, varAssignables: AstNode[]
 
@@ -430,6 +765,10 @@ export class ReturnStmt : public AstNode {
         ReturnStmt(std::optional<std::unique_ptr<AstNode>> expr): AstNode("ReturnStmt"), expr(std::move(expr)) {}
         ~ReturnStmt() = default;
 
+        std::string getWhere() const override {
+            return expr ? (*expr)->getWhere() : "return";
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             if (expr) {
@@ -440,6 +779,17 @@ export class ReturnStmt : public AstNode {
                 quads.emplace_back(Quadruple{"RETURN", "", "", ""});
             }
             return { quads, "" };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            if (expr) {
+                const auto valueResult = (*expr)->typeCheck(symbolTableNode, NONE_T);
+                if (std::holds_alternative<TypeCheckError>(valueResult)) {
+                    return valueResult;
+                }
+                // No return type checking for now
+            }
+            return TypeCheckSuccess{ NONE_T };
         }
 }; // expr?: AstNode
 
@@ -453,6 +803,10 @@ export class AssignExpr : public AstNode {
             : AstNode("AssignExpr"), var(std::move(var)), expr(std::move(expr)) {}
         ~AssignExpr() = default;
 
+        std::string getWhere() const override {
+            return var->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto varGeQ = var->toQuadruples(globalLabelId);
@@ -464,6 +818,23 @@ export class AssignExpr : public AstNode {
             quads.insert(quads.end(), valueQuads.begin(), valueQuads.end());
             quads.emplace_back(Quadruple{"=", valueResult, "", varResult});
             return { quads, varResult };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto varResult = var->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(varResult)) {
+                return varResult;
+            }
+            const auto varType = std::get<TypeCheckSuccess>(varResult).type;
+            const auto valueResult = expr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(valueResult)) {
+                return valueResult;
+            }
+            const auto valueType = std::get<TypeCheckSuccess>(valueResult).type;
+            if (!typeEquals(varType, valueType)) {
+                return TypeCheckError{ "Type mismatch: " + std::to_string(varType) + " and " + std::to_string(valueType), getWhere() };
+            }
+            return TypeCheckSuccess{ valueType };
         }
 }; // var: AstNode, expr: AstNode
 
@@ -477,6 +848,10 @@ export class OrExpr : public AstNode {
             : AstNode("OrExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
         ~OrExpr() = default;
 
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto lexprGeQ = lexpr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -486,6 +861,26 @@ export class OrExpr : public AstNode {
             const auto intermediate = getIntermediate(intermediateId);
             quads.emplace_back(Quadruple{"||", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            if (!checkType(lexprType, {BOOL_T, INT_T})) {
+                return TypeCheckError{ "Left operand must be boolean", lexpr->getWhere() };
+            }
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!checkType(rexprType, {BOOL_T, INT_T})) {
+                return TypeCheckError{ "Right operand must be boolean", rexpr->getWhere() };
+            }
+            return TypeCheckSuccess{ BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -499,6 +894,10 @@ export class AndExpr : public AstNode {
             : AstNode("AndExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
         ~AndExpr() = default;
 
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto lexprGeQ = lexpr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -508,6 +907,26 @@ export class AndExpr : public AstNode {
             const auto intermediate = getIntermediate(intermediateId);
             quads.emplace_back(Quadruple{"&&", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            if (!checkType(lexprType, {BOOL_T, INT_T})) {
+                return TypeCheckError{ "Left operand must be boolean", lexpr->getWhere() };
+            }
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!checkType(rexprType, {BOOL_T, INT_T})) {
+                return TypeCheckError{ "Right operand must be boolean", rexpr->getWhere() };
+            }
+            return TypeCheckSuccess{ BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -521,6 +940,10 @@ export class EqualExpr : public AstNode {
             : AstNode("EqualExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
         ~EqualExpr() = default;
 
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto lexprGeQ = lexpr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -530,6 +953,23 @@ export class EqualExpr : public AstNode {
             const auto intermediate = getIntermediate(intermediateId);
             quads.emplace_back(Quadruple{"==", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!typeEquals(lexprType, rexprType)) {
+                return TypeCheckError{ "Type mismatch in comparison", getWhere() };
+            }
+            return TypeCheckSuccess{ BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -543,6 +983,10 @@ export class NotEqualExpr : public AstNode {
             : AstNode("NotEqualExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
         ~NotEqualExpr() = default;
 
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto lexprGeQ = lexpr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -552,6 +996,23 @@ export class NotEqualExpr : public AstNode {
             const auto intermediate = getIntermediate(intermediateId);
             quads.emplace_back(Quadruple{"!=", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!typeEquals(lexprType, rexprType)) {
+                return TypeCheckError{ "Type mismatch in comparison", getWhere() };
+            }
+            return TypeCheckSuccess{ BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -565,6 +1026,10 @@ export class LessExpr : public AstNode {
             : AstNode("LessExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
         ~LessExpr() = default;
 
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto lexprGeQ = lexpr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -574,6 +1039,26 @@ export class LessExpr : public AstNode {
             const auto intermediate = getIntermediate(intermediateId);
             quads.emplace_back(Quadruple{"<", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!(
+                checkType(lexprType, {INT_T, FLOAT_T}) && checkType(rexprType, {INT_T, FLOAT_T}) ||
+                checkType(lexprType, {STR_T}) && checkType(rexprType, {STR_T})
+            )) {
+                return TypeCheckError{ "Type mismatch in comparison", getWhere() };
+            }
+            return TypeCheckSuccess{ BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -587,6 +1072,10 @@ export class LessEqualExpr : public AstNode {
             : AstNode("LessEqualExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
         ~LessEqualExpr() = default;
 
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto lexprGeQ = lexpr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -597,16 +1086,41 @@ export class LessEqualExpr : public AstNode {
             quads.emplace_back(Quadruple{"<=", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
         }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!(
+                checkType(lexprType, {INT_T, FLOAT_T}) && checkType(rexprType, {INT_T, FLOAT_T}) ||
+                checkType(lexprType, {STR_T}) && checkType(rexprType, {STR_T})
+            )) {
+                return TypeCheckError{ "Type mismatch in comparison", getWhere() };
+            }
+            return TypeCheckSuccess{ BOOL_T };
+        }
 }; // lexpr: AstNode, rexpr: AstNode
-export class MoreExpr : public AstNode {
+
+export class GreaterExpr : public AstNode {
     private:
         std::unique_ptr<AstNode> lexpr;
         std::unique_ptr<AstNode> rexpr;
 
     public:
-        MoreExpr(std::unique_ptr<AstNode> lexpr, std::unique_ptr<AstNode> rexpr)
-            : AstNode("MoreExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
-        ~MoreExpr() = default;
+        GreaterExpr(std::unique_ptr<AstNode> lexpr, std::unique_ptr<AstNode> rexpr)
+            : AstNode("GreaterExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
+        ~GreaterExpr() = default;
+
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
@@ -618,17 +1132,41 @@ export class MoreExpr : public AstNode {
             quads.emplace_back(Quadruple{">", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
         }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!(
+                checkType(lexprType, {INT_T, FLOAT_T}) && checkType(rexprType, {INT_T, FLOAT_T}) ||
+                checkType(lexprType, {STR_T}) && checkType(rexprType, {STR_T})
+            )) {
+                return TypeCheckError{ "Type mismatch in comparison", getWhere() };
+            }
+            return TypeCheckSuccess{ BOOL_T };
+        }
 }; // lexpr: AstNode, rexpr: AstNode
 
-export class MoreEqualExpr : public AstNode {
+export class GreaterEqualExpr : public AstNode {
     private:
         std::unique_ptr<AstNode> lexpr;
         std::unique_ptr<AstNode> rexpr;
 
     public:
-        MoreEqualExpr(std::unique_ptr<AstNode> lexpr, std::unique_ptr<AstNode> rexpr)
-            : AstNode("MoreEqualExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
-        ~MoreEqualExpr() = default;
+        GreaterEqualExpr(std::unique_ptr<AstNode> lexpr, std::unique_ptr<AstNode> rexpr)
+            : AstNode("GreaterEqualExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
+        ~GreaterEqualExpr() = default;
+
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
@@ -639,6 +1177,26 @@ export class MoreEqualExpr : public AstNode {
             const auto intermediate = getIntermediate(intermediateId);
             quads.emplace_back(Quadruple{">=", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!(
+                checkType(lexprType, {INT_T, FLOAT_T}) && checkType(rexprType, {INT_T, FLOAT_T}) ||
+                checkType(lexprType, {STR_T}) && checkType(rexprType, {STR_T})
+            )) {
+                return TypeCheckError{ "Type mismatch in comparison", getWhere() };
+            }
+            return TypeCheckSuccess{ BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -652,6 +1210,10 @@ export class AddExpr : public AstNode {
             : AstNode("AddExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
         ~AddExpr() = default;
 
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto lexprGeQ = lexpr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -661,6 +1223,29 @@ export class AddExpr : public AstNode {
             const auto intermediate = getIntermediate(intermediateId);
             quads.emplace_back(Quadruple{"+", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!(
+                checkType(lexprType, {INT_T, FLOAT_T}) && checkType(rexprType, {INT_T, FLOAT_T}) ||
+                checkType(lexprType, {STR_T}) && checkType(rexprType, {STR_T})
+            )) {
+                return TypeCheckError{ "Cannot add these two types", getWhere() };
+            }
+            if (lexprType == FLOAT_T || rexprType == FLOAT_T) {
+                return TypeCheckSuccess{ FLOAT_T };
+            }
+            return TypeCheckSuccess{ INT_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -674,6 +1259,10 @@ export class SubExpr : public AstNode {
             : AstNode("SubExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
         ~SubExpr() = default;
 
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto lexprGeQ = lexpr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -684,6 +1273,30 @@ export class SubExpr : public AstNode {
             quads.emplace_back(Quadruple{"-", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
         }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            if (!checkType(lexprType, {INT_T, FLOAT_T})) {
+                return TypeCheckError{ "The operands must be numeric", lexpr->getWhere() };
+            }
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!checkType(rexprType, {INT_T, FLOAT_T})) {
+                return TypeCheckError{ "The operands must be numeric", rexpr->getWhere() };
+            }
+            if (lexprType == FLOAT_T || rexprType == FLOAT_T) {
+                return TypeCheckSuccess{ FLOAT_T };
+            }
+            return TypeCheckSuccess{ INT_T };
+        }
+
 }; // lexpr: AstNode, rexpr: AstNode
 export class MulExpr : public AstNode {
     private:
@@ -695,6 +1308,10 @@ export class MulExpr : public AstNode {
             : AstNode("MulExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
         ~MulExpr() = default;
 
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto lexprGeQ = lexpr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -704,6 +1321,29 @@ export class MulExpr : public AstNode {
             const auto intermediate = getIntermediate(intermediateId);
             quads.emplace_back(Quadruple{"*", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            if (!checkType(lexprType, {INT_T, FLOAT_T})) {
+                return TypeCheckError{ "The operands must be numeric", lexpr->getWhere() };
+            }
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!checkType(rexprType, {INT_T, FLOAT_T})) {
+                return TypeCheckError{ "The operands must be numeric", rexpr->getWhere() };
+            }
+            if (lexprType == FLOAT_T || rexprType == FLOAT_T) {
+                return TypeCheckSuccess{ FLOAT_T };
+            }
+            return TypeCheckSuccess{ INT_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -717,6 +1357,10 @@ export class DivExpr : public AstNode {
             : AstNode("DivExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
         ~DivExpr() = default;
 
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto lexprGeQ = lexpr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -726,6 +1370,29 @@ export class DivExpr : public AstNode {
             const auto intermediate = getIntermediate(intermediateId);
             quads.emplace_back(Quadruple{"/", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            if (!checkType(lexprType, {INT_T, FLOAT_T})) {
+                return TypeCheckError{ "The operands must be numeric", lexpr->getWhere() };
+            }
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!checkType(rexprType, {INT_T, FLOAT_T})) {
+                return TypeCheckError{ "The operands must be numeric", rexpr->getWhere() };
+            }
+            if (lexprType == FLOAT_T || rexprType == FLOAT_T) {
+                return TypeCheckSuccess{ FLOAT_T };
+            }
+            return TypeCheckSuccess{ INT_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -739,6 +1406,10 @@ export class ModExpr : public AstNode {
             : AstNode("ModExpr"), lexpr(std::move(lexpr)), rexpr(std::move(rexpr)) {}
         ~ModExpr() = default;
 
+        std::string getWhere() const override {
+            return lexpr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto lexprGeQ = lexpr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -748,6 +1419,29 @@ export class ModExpr : public AstNode {
             const auto intermediate = getIntermediate(intermediateId);
             quads.emplace_back(Quadruple{"%", lexprGeQ.result, rexprGeQ.result, intermediate});
             return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(lexprResult)) {
+                return lexprResult;
+            }
+            const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
+            if (!checkType(lexprType, {INT_T, FLOAT_T})) {
+                return TypeCheckError{ "The operands must be numeric", lexpr->getWhere() };
+            }
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(rexprResult)) {
+                return rexprResult;
+            }
+            const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
+            if (!checkType(rexprType, {INT_T, FLOAT_T})) {
+                return TypeCheckError{ "The operands must be numeric", rexpr->getWhere() };
+            }
+            if (lexprType == FLOAT_T || rexprType == FLOAT_T) {
+                return TypeCheckSuccess{ FLOAT_T };
+            }
+            return TypeCheckSuccess{ INT_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -759,6 +1453,10 @@ export class UnaryPlusExpr : public AstNode {
         UnaryPlusExpr(std::unique_ptr<AstNode> expr): AstNode("UnaryPlusExpr"), expr(std::move(expr)) {}
         ~UnaryPlusExpr() = default;
 
+        std::string getWhere() const override {
+            return expr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto valueGeQ = expr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -766,6 +1464,18 @@ export class UnaryPlusExpr : public AstNode {
             const auto intermediate = getIntermediate(intermediateId);
             quads.emplace_back(Quadruple{"+", valueGeQ.result, "", intermediate});
             return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto valueResult = expr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(valueResult)) {
+                return valueResult;
+            }
+            const auto valueType = std::get<TypeCheckSuccess>(valueResult).type;
+            if (!checkType(valueType, {INT_T, FLOAT_T})) {
+                return TypeCheckError{ "The operand must be numeric", expr->getWhere() };
+            }
+            return TypeCheckSuccess{ valueType };
         }
 }; // expr: AstNode
 
@@ -777,6 +1487,10 @@ export class UnaryMinusExpr : public AstNode {
         UnaryMinusExpr(std::unique_ptr<AstNode> expr): AstNode("UnaryMinusExpr"), expr(std::move(expr)) {}
         ~UnaryMinusExpr() = default;
 
+        std::string getWhere() const override {
+            return expr->getWhere();
+        }
+
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
             const auto valueGeQ = expr->toQuadruples(globalLabelId, intermediateId + 1);
@@ -785,7 +1499,54 @@ export class UnaryMinusExpr : public AstNode {
             quads.emplace_back(Quadruple{"-", valueGeQ.result, "", intermediate});
             return { quads, intermediate };
         }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto valueResult = expr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(valueResult)) {
+                return valueResult;
+            }
+            const auto valueType = std::get<TypeCheckSuccess>(valueResult).type;
+            if (!checkType(valueType, {INT_T, FLOAT_T})) {
+                return TypeCheckError{ "The operand must be numeric", expr->getWhere() };
+            }
+            return TypeCheckSuccess{ valueType };
+        }
 }; // expr: AstNode
+
+export class NotExpr : public AstNode {
+    private:
+        std::unique_ptr<AstNode> expr;
+
+    public:
+        NotExpr(std::unique_ptr<AstNode> expr): AstNode("NotExpr"), expr(std::move(expr)) {}
+        ~NotExpr() = default;
+
+        std::string getWhere() const override {
+            return expr->getWhere();
+        }
+
+        GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
+            Quadruples quads;
+            const auto valueGeQ = expr->toQuadruples(globalLabelId, intermediateId + 1);
+            quads.insert(quads.end(), valueGeQ.quads.begin(), valueGeQ.quads.end());
+            const auto intermediate = getIntermediate(intermediateId);
+            quads.emplace_back(Quadruple{"-", valueGeQ.result, "", intermediate});
+            return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto valueResult = expr->typeCheck(symbolTableNode, NONE_T);
+            if (std::holds_alternative<TypeCheckError>(valueResult)) {
+                return valueResult;
+            }
+            const auto valueType = std::get<TypeCheckSuccess>(valueResult).type;
+            if (!checkType(valueType, {BOOL_T, INT_T})) {
+                return TypeCheckError{ "The operand must be boolean", expr->getWhere() };
+            }
+            return TypeCheckSuccess{ BOOL_T };
+        }
+}; // expr: AstNode
+
 export class FuncCall : public AstNode {
     private:
         Token id;
@@ -794,6 +1555,10 @@ export class FuncCall : public AstNode {
     public:
         FuncCall(Token id, std::vector<std::unique_ptr<AstNode>> arguments): AstNode("FuncCall"), id(id), exprs(std::move(arguments)) {}
         ~FuncCall() = default;
+
+        std::string getWhere() const override {
+            return id.formatPosition();
+        }
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             Quadruples quads;
@@ -804,5 +1569,25 @@ export class FuncCall : public AstNode {
             }
             const auto intermediate = getIntermediate(intermediateId);
             return { quads, intermediate };
+        }
+
+        TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
+            const auto entryIter = symbolTableNode.table->find(id.getValue());
+            if (entryIter == symbolTableNode.table->end()) {
+                return TypeCheckError{ "Function not found", id.formatPosition() };
+            }
+            const auto& entry = entryIter->second;
+            if (entry.type != FUNC_T) {
+                return TypeCheckError{ "Identifier is not a function", id.formatPosition() };
+            }
+            for (const auto& arg : exprs) {
+                const auto argResult = arg->typeCheck(symbolTableNode, NONE_T);
+                if (std::holds_alternative<TypeCheckError>(argResult)) {
+                    return argResult;
+                }
+                // No argument type check for now
+            }
+            // Function call returns the any type for now
+            return TypeCheckSuccess{ ANY_T };
         }
 }; // id: Token, exprs: AstNode[]

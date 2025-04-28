@@ -20,10 +20,9 @@ import token;
 template<class... Ts>
 struct overloads : Ts... { using Ts::operator()...; };
 
+export class SimpleParseTree; // forward declaration
 export class ParseTree; // forward declaration
 
-// export using PTChildren = std::vector<std::variant<Token, ParseTree>>;
-// export using SimplifyHandler = std::function<PTChildren(const PTChildren& simplifiedChildren)>;
 export enum SimplifyInstruction {
     RETAIN,
     MERGE_UP,
@@ -31,20 +30,67 @@ export enum SimplifyInstruction {
 };
 export using SimplifyInstructionMap = std::map<NonTerminal, SimplifyInstruction>;
 
+export using SPTChildren = std::vector<std::variant<Token, SimpleParseTree>>;
+
+export using AstHandler = std::function<std::unique_ptr<AstNode>(const SPTChildren& children)>;
+export using AstHandlerMap = std::map<NonTerminal, AstHandler>;
+
+class SimpleParseTree {
+    private:
+        const NonTerminal nonTerminal;
+        std::vector<std::variant<Token, SimpleParseTree>> children;
+        const AstHandlerMap handlerMap;
+
+    public:
+        SimpleParseTree(const NonTerminal& nonTerminal, const AstHandlerMap& handlerMap) : nonTerminal(nonTerminal), handlerMap(handlerMap) {}
+
+        NonTerminal getNonTerminal() const {
+            return nonTerminal;
+        }
+
+        void addChild(const std::variant<Token, SimpleParseTree>& child) {
+            children.push_back(child);
+        }
+
+        std::unique_ptr<AstNode> toAst() const {
+            auto handlerIter = handlerMap.find(nonTerminal);
+            if (handlerIter == handlerMap.end()) {
+                throw std::runtime_error("No handler found for non-terminal: " + std::string{nonTerminal.getName()});
+            }
+            const auto& handler = handlerIter->second;
+
+            return handler(children);
+        }
+
+        std::string toString() const {
+            std::ostringstream oss;
+            oss << nonTerminal.getName() << "( ";
+            for (const auto& child : children) {
+                oss << std::visit(overloads{
+                    [&oss](const Token& token) { oss << token.toStringPrint(); return ""; },
+                    [&oss](const SimpleParseTree& parseTree) { oss << parseTree.toString(); return ""; }
+                }, child);
+                oss << " ";
+            }
+            oss << ")";
+            return oss.str();
+        }
+};
+
 class ParseTree {
     private:
         const NonTerminal nonTerminal;
         std::vector<std::variant<Token, ParseTree>> children;
 
-        std::vector<std::variant<Token, ParseTree>> simplifyInner(const SimplifyInstructionMap& instructionMap) const {
+        std::vector<std::variant<Token, SimpleParseTree>> simplifyInner(const SimplifyInstructionMap& instructionMap, const AstHandlerMap& handlerMap) const {
             // Simplify the children first
-            std::vector<std::variant<Token, ParseTree>> simplified;
+            std::vector<std::variant<Token, SimpleParseTree>> simplified;
             for (const auto& child : children) {
                 if (std::holds_alternative<Token>(child)) {
                     simplified.push_back(std::get<Token>(child));
                 } else if (std::holds_alternative<ParseTree>(child)) {
                     auto parseTreeChild = std::get<ParseTree>(child);
-                    auto simplifiedChildren = parseTreeChild.simplifyInner(instructionMap);
+                    auto simplifiedChildren = parseTreeChild.simplifyInner(instructionMap, handlerMap);
                     for (const auto& simplifiedChild : simplifiedChildren) {
                         simplified.push_back(simplifiedChild);
                     }
@@ -64,32 +110,12 @@ class ParseTree {
             if (toMergeUp) {
                 return simplified;
             } else {
-                ParseTree simplifiedTree(nonTerminal);
+                SimpleParseTree simplifiedTree(nonTerminal, handlerMap);
                 for (const auto& child : simplified) {
                     simplifiedTree.addChild(child);
                 }
                 return { simplifiedTree };
             }
-        }
-
-        std::unique_ptr<AstNode> toAst(std::map<NonTerminal, AstHandler> handlerMap) const {
-            auto handlerIter = handlerMap.find(nonTerminal);
-            if (handlerIter == handlerMap.end()) {
-                throw std::runtime_error("No handler found for non-terminal: " + std::string{nonTerminal.getName()});
-            }
-            const auto& handler = handlerIter->second;
-
-            AstChildren astChildren{};
-            for (const auto& child : children) {
-                if (std::holds_alternative<Token>(child)) {
-                    astChildren.push_back(std::get<Token>(child));
-                } else if (std::holds_alternative<ParseTree>(child)) {
-                    auto astChild = std::get<ParseTree>(child).toAst(handlerMap);
-                    astChildren.push_back(std::move(astChild));
-                }
-            }
-
-            return handler(astChildren);
         }
 
     public:
@@ -103,20 +129,20 @@ class ParseTree {
             children.push_back(child);
         }
 
-        ParseTree simplify(const SimplifyInstructionMap& instructionMap) const {
-            const auto simplified = simplifyInner(instructionMap);
-            if (simplified.size() == 1 && std::holds_alternative<ParseTree>(simplified[0])) {
-                return std::get<ParseTree>(simplified[0]);
-            }
-            throw std::runtime_error("Error when simplifying parse tree");
-        }
-
         ParseTree withoutStartSymbol() const {
             if (children.size() == 1 && std::holds_alternative<ParseTree>(children[0])) {
                 return std::get<ParseTree>(children[0]);
             }
             throw std::runtime_error("Parse tree of " + std::string{nonTerminal.getName()} + " have "
                 + std::to_string(children.size()) + " children, expected 1");
+        }
+
+        SimpleParseTree simplify(const SimplifyInstructionMap& instructionMap, const AstHandlerMap& handlerMap) const {
+            const auto simplified = simplifyInner(instructionMap, handlerMap);
+            if (simplified.size() == 1 && std::holds_alternative<SimpleParseTree>(simplified[0])) {
+                return std::get<SimpleParseTree>(simplified[0]);
+            }
+            throw std::runtime_error("Error when simplifying parse tree");
         }
 
         std::string toString() const {
@@ -202,7 +228,7 @@ export struct ParserAcceptResult {
 
 export struct ParserRejectResult {
     std::string message;
-    std::vector<Token>::const_iterator where;
+    std::string where;
 };
 
 export using ParsingResult = std::variant<ParserAcceptResult, ParserRejectResult>;

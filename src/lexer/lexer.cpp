@@ -52,7 +52,7 @@ export class Lexer {
                 // 2. Try each acceptor
                 bool accepted = false;
                 for (const auto& acceptor : acceptors) {
-                    auto result = acceptor->accept(codeIter, codeEnd);
+                    auto result = acceptor->accept(codeIter, codeEnd, code.begin());
                     if (std::holds_alternative<AcceptResult>(result)) {
                         AcceptResult acceptResult = std::get<AcceptResult>(result);
                         tokens.push_back(acceptResult.token);

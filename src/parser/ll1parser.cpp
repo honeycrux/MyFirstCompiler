@@ -38,11 +38,11 @@ export class LL1Parser : public ParserBase {
 
             while (true) {
                 if (symbolStack.empty()) {
-                    return ParserRejectResult{"Unexpected end of symbol stack", nextTokenIter};
+                    return ParserRejectResult{"Unexpected end of symbol stack", nextTokenIter->formatPosition()};
                 }
 
                 if (nextTokenIter == tokenEnd) {
-                    return ParserRejectResult{"Unexpected end of input", nextTokenIter};
+                    return ParserRejectResult{"Unexpected end of input", nextTokenIter->formatPosition()};
                 }
 
                 const auto& currentStackTop = symbolStack.top();
@@ -71,7 +71,7 @@ export class LL1Parser : public ParserBase {
                         const auto& foo = std::get<Token>(*currentPtr);
                         symbolStack.pop();
                     } else {
-                        return ParserRejectResult{"Unexpected token: " + nextTokenIter->toStringPrint(), nextTokenIter };
+                        return ParserRejectResult{"Unexpected token: " + nextTokenIter->toStringPrint(), nextTokenIter->formatPosition()};
                     }
                 } else if (std::holds_alternative<NonTerminal>(currentSymbol)) {
                     // The top of symbol stack is a non-terminal
@@ -103,7 +103,7 @@ export class LL1Parser : public ParserBase {
 
                     const auto production = findProduction();
                     if (!production.has_value()) {
-                        return ParserRejectResult{"No production found for non-terminal: " + std::string{stackNonTerminal.getName()}, nextTokenIter};
+                        return ParserRejectResult{"No production found for non-terminal: " + std::string{stackNonTerminal.getName()}, nextTokenIter->formatPosition()};
                     }
 
                     // Pop non-terminal
@@ -141,6 +141,6 @@ export class LL1Parser : public ParserBase {
                 }
             }
 
-            return ParserRejectResult{"Unexpected end of symbol stack", nextTokenIter};
+            return ParserRejectResult{"Unexpected end of symbol stack", nextTokenIter->formatPosition()};
         }
 };

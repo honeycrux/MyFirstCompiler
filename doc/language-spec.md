@@ -19,21 +19,21 @@ Type ::= int | float | str
 
 VarDecl ::= Type VarList ;
 VarList ::= VarAssignable , VarList | VarAssignable
-VarAssigable ::= Var = Expr | Var
+VarAssignable ::= Var = Expr | Var
 
 Var ::= id [ intconst ] | id
 Type ::= int | float | str
 
 BlockStmt ::= { StmtList }
 StmtList ::= Stmt StmtList | ε
-Stmt ::= VarDecl | IfStmt | WhileStmt | ForStmt | ReturnStmt | Expr ; | ; | BlockStmt
+Stmt ::= VarDecl | IfStmt | WhileStmt | ForStmt | ReturnStmt | Expr ; | ;
 
 IfStmt ::= if ( Expr ) BlockStmt | if ( Expr ) BlockStmt else BlockStmt
 
 WhileStmt ::= while ( Expr ) BlockStmt
 
 ForStmt ::= for ( ForVarDecl ; Expr ; Expr ) BlockStmt
-ForVarDecl ::= Type VarList | VarList
+ForVarDecl ::= VarList
 
 ReturnStmt ::= return Expr ; | return ;
 

@@ -31,44 +31,44 @@ int computeLongestPunctuatorLength() {
 }
 
 export namespace TokenFactory {
-    Token getIdentifierToken(std::string_view str) {
-        return Token(TokenRegistry::identifierId, TokenType::IDENTIFIER, str);
+    Token getIdentifierToken(std::string_view str, std::string_view::const_iterator begin, std::string_view::const_iterator where) {
+        return Token(TokenRegistry::identifierId, TokenType::IDENTIFIER, str, begin, where);
     }
 
-    Token getIntegerLiteralToken(std::string_view str) {
-        return Token(TokenRegistry::integerLiteralId, TokenType::INTEGER, str);
+    Token getIntegerLiteralToken(std::string_view str, std::string_view::const_iterator begin, std::string_view::const_iterator where) {
+        return Token(TokenRegistry::integerLiteralId, TokenType::INTEGER, str, begin, where);
     }
 
-    Token getFloatLiteralToken(std::string_view str) {
-        return Token(TokenRegistry::floatLiteralId, TokenType::FLOAT, str);
+    Token getFloatLiteralToken(std::string_view str, std::string_view::const_iterator begin, std::string_view::const_iterator where) {
+        return Token(TokenRegistry::floatLiteralId, TokenType::FLOAT, str, begin, where);
     }
 
-    Token getStringLiteralToken(std::string_view str) {
-        return Token(TokenRegistry::stringLiteralId, TokenType::STRING, str);
+    Token getStringLiteralToken(std::string_view str, std::string_view::const_iterator begin, std::string_view::const_iterator where) {
+        return Token(TokenRegistry::stringLiteralId, TokenType::STRING, str, begin, where);
     }
 
-    std::optional<Token> findKeywordToken(std::string_view str) {
+    std::optional<Token> findKeywordToken(std::string_view str, std::string_view::const_iterator begin, std::string_view::const_iterator where) {
         auto it = TokenRegistry::keywordIdMap.find(str);
         if (it == TokenRegistry::keywordIdMap.end()) {
             return std::nullopt;
         }
-        return Token(it->second, TokenType::KEYWORD, str);
+        return Token(it->second, TokenType::KEYWORD, str, begin, where);
     }
 
-    std::optional<Token> findOperatorToken(std::string_view str) {
+    std::optional<Token> findOperatorToken(std::string_view str, std::string_view::const_iterator begin, std::string_view::const_iterator where) {
         auto it = TokenRegistry::operatorIdMap.find(str);
         if (it == TokenRegistry::operatorIdMap.end()) {
             return std::nullopt;
         }
-        return Token(it->second, TokenType::OPERATOR, str);
+        return Token(it->second, TokenType::OPERATOR, str, begin, where);
     }
 
-    std::optional<Token> findPunctuatorToken(std::string_view str) {
+    std::optional<Token> findPunctuatorToken(std::string_view str, std::string_view::const_iterator begin, std::string_view::const_iterator where) {
         auto it = TokenRegistry::punctuatorIdMap.find(str);
         if (it == TokenRegistry::punctuatorIdMap.end()) {
             return std::nullopt;
         }
-        return Token(it->second, TokenType::PUNCTUATOR, str);
+        return Token(it->second, TokenType::PUNCTUATOR, str, begin, where);
     }
 
     const int longestKeywordLength = computeLongestKeywordLength();

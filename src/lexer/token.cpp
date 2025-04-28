@@ -3,6 +3,7 @@ module;
 #include <string>
 #include <map>
 #include <string_view>
+#include <vector>
 
 export module token;
 
@@ -31,8 +32,11 @@ export class Token {
         const int id;
         const TokenType type;
         const std::string value;
+        const std::string_view::const_iterator begin;
+        const std::string_view::const_iterator where;
     public:
-        Token(int id, TokenType type, std::string_view value) : value(value), type(type), id(id) {}
+        Token(int id, TokenType type, std::string_view value, std::string_view::const_iterator begin, std::string_view::const_iterator where)
+            : value(value), type(type), id(id), begin(begin), where(where) {}
         std::string toStringPrint() const {
             return "<" + value + ", " + std::string(tokenTypeNamesMap.at(type)) + ">";
         }
@@ -47,5 +51,8 @@ export class Token {
         }
         std::string getValue() const {
             return value;
+        }
+        std::string formatPosition() const {
+            return "position: " + std::to_string(std::distance(begin, where) + 1);
         }
 };

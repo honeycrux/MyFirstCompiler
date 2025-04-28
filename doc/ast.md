@@ -5,9 +5,8 @@ Should ignore most punctuations but keep operators.
 
 ```
 Start ::= [Decl]+
-Decl ::= FuncDef | VarDecl
 
-FuncDef ::= Type id [Param ,]+ BlockStmt
+FuncDef ::= Type id ( [Param ,]+ ) BlockStmt
 Param ::= Type id [ ] | Type id
 
 VarDecl ::= Type [VarAssignable ,]+ ;
@@ -17,18 +16,16 @@ Var ::= id [ intconst ] | id
 Type ::= int | float | str
 Constant ::= intconst | floatconst | strconst
 
-BlockStmt ::= { [VarDecl | IfStmt | WhileStmt | ForStmt | ReturnStmt | expr ; | ; | BlockStmt ]+ }
+BlockStmt ::= { [VarDecl | IfStmt | WhileStmt | ForStmt | ReturnStmt | expr ; | ; ]+ }
 
 expr is one of AssignExpr | OrExpr | AndExpr | EqualityExpr | RelationalExpr | SumExpr | MulExpr | UnaryExpr | FuncCall | Constant | Var
-
-FuncCall ::= id [expr ,]+
 
 IfStmt ::= if ( expr ) BlockStmt | if ( expr ) BlockStmt else BlockStmt
 
 WhileStmt ::= while ( expr ) BlockStmt
 
 ForStmt ::= for ( ForVarDecl ; expr ; expr ) BlockStmt
-ForVarDecl ::= Type [VarAssignable ,]+
+ForVarDecl ::= [VarAssignable ,]+
 
 ReturnStmt ::= return expr ; | return ;
 
@@ -41,7 +38,6 @@ SumExpr ::= MulExpr [SumOp MulExpr]+
 MulExpr ::= UnaryExpr [MulOp UnaryExpr]+
 UnaryExpr ::= UnaryOp UnaryExpr
 FuncCall ::= id ( [Expr ,]+ )
-ArgList ::= Expr , ArgList | Expr | ε
 Factor ::= ( Expr )
 ```
 
@@ -59,7 +55,7 @@ Constant ( value: Token )
 BlockStmt ( statements: AstNode[] )
 IfStmt ( condExpr: AstNode, thenBody: AstNode, elseBody?: AstNode )
 WhileStmt ( condExpr: AstNode, body: AstNode )
-ForStmt ( type?: Token, forVarDecl: AstNode[], condExpr: AstNode, incrExpr: AstNode )
+ForStmt ( forVarDecl: AstNode[], condExpr: AstNode, incrExpr: AstNode )
 ReturnStmt ( expr?: AstNode )
 AssignExpr ( var: AstNode, expr: AstNode )
 OrExpr ( lexpr: AstNode, rexpr: AstNode )
@@ -68,8 +64,8 @@ EqualExpr ( lexpr: AstNode, rexpr: AstNode )
 NotEqualExpr ( lexpr: AstNode, rexpr: AstNode )
 LessExpr ( lexpr: AstNode, rexpr: AstNode )
 LessEqualExpr ( lexpr: AstNode, rexpr: AstNode )
-MoreExpr ( lexpr: AstNode, rexpr: AstNode )
-MoreEqualExpr ( lexpr: AstNode, rexpr: AstNode )
+GreaterExpr ( lexpr: AstNode, rexpr: AstNode )
+GreaterEqualExpr ( lexpr: AstNode, rexpr: AstNode )
 AddExpr ( lexpr: AstNode, rexpr: AstNode )
 SubExpr ( lexpr: AstNode, rexpr: AstNode )
 MulExpr ( lexpr: AstNode, rexpr: AstNode )
