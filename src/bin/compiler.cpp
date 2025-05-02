@@ -38,7 +38,9 @@ export class Compiler {
             if (!file.is_open()) {
                 throw std::runtime_error("Failed to open file: " + filename);
             }
-            file << lexer.getWriteString(tokens) << std::endl;
+            for (const auto& token : tokens) {
+                file << token;
+            }
         }
 
     public:

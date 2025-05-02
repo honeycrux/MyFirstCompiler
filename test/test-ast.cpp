@@ -24,7 +24,7 @@ TEST_CASE("Type check arithmetic expression") {
         auto result = addExpr->startTypeCheck();
         REQUIRE(std::holds_alternative<TypeCheckSuccess>(result));
         auto typeCheckResult = std::get<TypeCheckSuccess>(result);
-        CHECK(typeCheckResult.type == INT_T);
+        CHECK(typeCheckResult.type == DataType::INT_T);
     }
 
     SECTION("Type check with complex expression") {
@@ -43,7 +43,7 @@ TEST_CASE("Type check arithmetic expression") {
         auto result = addExpr->startTypeCheck();
         REQUIRE(std::holds_alternative<TypeCheckSuccess>(result));
         auto typeCheckResult = std::get<TypeCheckSuccess>(result);
-        CHECK(typeCheckResult.type == FLOAT_T);
+        CHECK(typeCheckResult.type == DataType::FLOAT_T);
     }
 }
 
@@ -74,7 +74,7 @@ TEST_CASE("Type check assignments") {
         auto result = blockStmt->startTypeCheck();
         REQUIRE(std::holds_alternative<TypeCheckSuccess>(result));
         auto typeCheckResult = std::get<TypeCheckSuccess>(result);
-        CHECK(typeCheckResult.type == NONE_T);
+        CHECK(typeCheckResult.type == DataType::NONE_T);
     }
 
     SECTION("Assign an incorrect type") {

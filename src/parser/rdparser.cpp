@@ -5,6 +5,7 @@ module;
 #include <variant>
 #include <map>
 #include <stdexcept>
+#include <memory>
 
 export module rdparser;
 
@@ -25,7 +26,7 @@ export class RecursiveDescentParser : public ParserBase {
             if (productsIter == productMap.end()) {
                 throw std::runtime_error("No production or subparser found for non-terminal: " + std::string{nonTerminal.getName()});
             }
-            auto products = productsIter->second;
+            auto& products = productsIter->second;
 
             std::vector<Token>::const_iterator bestIter = tokenIter;
 

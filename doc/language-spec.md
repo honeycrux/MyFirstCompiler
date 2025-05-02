@@ -19,9 +19,11 @@ Type ::= int | float | str
 
 VarDecl ::= Type VarAssignableList ;
 VarAssignableList ::= VarAssignable , VarAssignableList | VarAssignable
-VarAssignable ::= Var = Expr | Var
+VarAssignable ::= id = Expr | id [ intconst ] | id
 
-Var ::= id [ intconst ] | id
+VarConst ::= Var | Constant
+Constant ::= intconst | floatconst | strconst
+Var ::= id [ VarConst ] | id
 Type ::= int | float | str
 
 BlockStmt ::= { StmtList }
@@ -33,8 +35,8 @@ IfStmt ::= if ( Expr ) BlockStmt else BlockStmt | if ( Expr ) BlockStmt
 WhileStmt ::= while ( Expr ) BlockStmt
 
 ForStmt ::= for ( ForVarDecl ; Expr ; Expr ) BlockStmt
-ForVarDecl ::= VarAssignList
-VarAssignList ::= VarAssign, VarAssignList | VarAssign | ε
+ForVarDecl ::= VarAssignList | ε
+VarAssignList ::= VarAssign, VarAssignList | VarAssign
 VarAssign ::= Var = Expr
 
 ReturnStmt ::= return Expr ; | return ;
@@ -63,7 +65,7 @@ UnaryOp ::= + | - | !
 % Note 3 %
 VarConst ::= Var | Constant
 Constant ::= intconst | floatconst | strconst
-Var ::= id [ intconst ] | id
+Var ::= id [ VarConst ] | id
 ```
 
 Three types of parsing are used. By default, the parsing of the grammar is done with recursive descent parsing. Grammar labelled with SLR1 and LL1 are parsed with the corresponding methods instead.
@@ -105,7 +107,7 @@ S ::= VarConst
 VarConst ::= Var | Constant
 Constant ::= intconst | floatconst | strconst
 Var ::= id Var'
-Var' ::= [ Expr ] | ε
+Var' ::= [ Var ] | ε
 ```
 
 ## Precedence, Associativity
@@ -124,3 +126,32 @@ l Logical AND &&
 l Logical OR ||
 r assignment operators =
 ```
+
+## Types and Operations Allowed
+Types recognized in the language are `int`, `float`, `str`, `bool`, `func`, `any`, and `none`.
+
+Variables can be declared types `int` `float` `str`. Assigned types must match the declared type (no casting).
+
+Array indexing (A[i]) can be applied on single-subscripted array types declared as `int[n]`, `float[n]`, `str[n]`. Integer variables or constants can be used for indexing, but expressions cannot. Multiple subscription is not supported. List instantiation is not supported.
+
+Conditions in if, for, and while statements must have the `bool` or `int` type.
+
+Function calls can be applied on identifiers of the `func` type.
+
+No type checking is applied to (the number of and the types of) the actual arguments of a function call and its return type. A function call evaluate to the `any` type.
+
+The `any` type voids type checking for an identifier, which means a value of the type can be viewed as any other type.
+
+The `none` type is the type returned by statements or structures without a type.
+
+The operand(s) of logical expressions `&&`, `||`, and `!` must have the `bool` or `int` type.
+
+The equality expressions `==` and `!=` compare values of the same type.
+
+The relational expressions `<`, `<=`, `>`, and `>=` compare either numeric (`int`/`float`) values or `str` values.
+
+The add expression `+` adds two numeric (`int`/`float`) values or two `str` values. It returns a `float` if any operand is a float, and `int` or `str` otherwise.
+
+The subtract expression `-`, multiply expression `*`, division expression `/`, and mod expression `%` operate on two numeric (`int`/`float`) values. (The mod expression in Python curiously operates properly on `float`s.) It returns a `float` if any operand is a float, and `int` otherwise.
+
+The unary plus `+` and minus `-` expressions operates on a numeric (`int`/`float`) value.

@@ -11,16 +11,11 @@ import lexer;
 
 using Catch::Matchers::ContainsSubstring;
 
-struct ParserOutput {
-    std::string printOutput;
-    std::string writeOutput;
-};
-
-inline ParserOutput getParserOutput(const Lexer& parser, const std::string_view code) {
+inline std::string getParserOutput(const Lexer& parser, const std::string_view code) {
     auto result = parser.acceptCode(code);
     REQUIRE(std::holds_alternative<std::vector<Token>>(result));
     auto tokens = std::get<std::vector<Token>>(result);
-    return { parser.getPrintString(tokens), parser.getWriteString(tokens) };
+    return parser.getPrintString(tokens);
 }
 
 inline LexicalError getParserError(const Lexer& parser, const std::string_view code) {
@@ -35,9 +30,8 @@ TEST_CASE("Parse an identifier") {
 
     SECTION("Parse a correct identifier") {
         std::string code = "_hello12k";
-        auto [printout, writeout] = getParserOutput(parser, code);
+        auto printout = getParserOutput(parser, code);
         CHECK(printout == "<_hello12k, identifier>");
-        CHECK(writeout == "<_hello12k, 0>");
     }
 
     SECTION("Parse an incorrect identifier") {
@@ -47,9 +41,8 @@ TEST_CASE("Parse an identifier") {
 
     SECTION("Parse an identifier that looks like a keyword") {
         std::string code = "if_";
-        auto [printout, writeout] = getParserOutput(parser, code);
+        auto printout = getParserOutput(parser, code);
         CHECK(printout == "<if_, identifier>");
-        CHECK(writeout == "<if_, 0>");
     }
 }
 
@@ -58,16 +51,14 @@ TEST_CASE("Parse a numeric literal") {
 
     SECTION("Parse an integer") {
         std::string code = "12";
-        auto [printout, writeout] = getParserOutput(parser, code);
+        auto printout = getParserOutput(parser, code);
         CHECK(printout == "<12, integer>");
-        CHECK(writeout == "<12, 1>");
     }
 
     SECTION("Parse a float") {
         std::string code = "12.04";
-        auto [printout, writeout] = getParserOutput(parser, code);
+        auto printout = getParserOutput(parser, code);
         CHECK(printout == "<12.04, float>");
-        CHECK(writeout == "<12.04, 2>");
     }
 }
 
@@ -76,9 +67,8 @@ TEST_CASE("Parse a string literal") {
 
     SECTION("Parse a correct string") {
         std::string code = "\"hello\"";
-        auto [printout, writeout] = getParserOutput(parser, code);
+        auto printout = getParserOutput(parser, code);
         CHECK(printout == "<\"hello\", string>");
-        CHECK(writeout == "<\"hello\", 3>");
     }
 
     SECTION("Parse a unterminated string") {
@@ -88,9 +78,8 @@ TEST_CASE("Parse a string literal") {
 
     SECTION("Parse escaped characters") {
         std::string code = "\"\\n,\\t,\\\",\\\\,\"";
-        auto [printout, writeout] = getParserOutput(parser, code);
+        auto printout = getParserOutput(parser, code);
         CHECK(printout == "<\"\\n,\\t,\\\",\\\\,\", string>");
-        CHECK(writeout == "<\"\\n,\\t,\\\",\\\\,\", 3>");
     }
 
     SECTION("Parse unterminated escape") {
@@ -103,15 +92,13 @@ TEST_CASE("Parse a keyword") {
     Lexer parser;
 
     SECTION("Parse keyword") {
-        auto [printout, writeout] = getParserOutput(parser, "do");
+        auto printout = getParserOutput(parser, "do");
         CHECK(printout == "<do, keyword>");
-        CHECK(writeout == "<do, 108>");
     }
 
     SECTION("Parse longest keyword") {
-        auto [printout, writeout] = getParserOutput(parser, "float");
+        auto printout = getParserOutput(parser, "float");
         CHECK(printout == "<float, keyword>");
-        CHECK(writeout == "<float, 101>");
     }
 }
 
@@ -119,21 +106,18 @@ TEST_CASE("Parse an operator") {
     Lexer parser;
 
     SECTION("Parse operator") {
-        auto [printout, writeout] = getParserOutput(parser, ">");
+        auto printout = getParserOutput(parser, ">");
         CHECK(printout == "<>, operator>");
-        CHECK(writeout == "<>, 205>");
     }
 
     SECTION("Parse longest operator") {
-        auto [printout, writeout] = getParserOutput(parser, ">=");
+        auto printout = getParserOutput(parser, ">=");
         CHECK(printout == "<>=, operator>");
-        CHECK(writeout == "<>=, 203>");
     }
 
     SECTION("Parse consecutive operators") {
-        auto [printout, writeout] = getParserOutput(parser, "**");
+        auto printout = getParserOutput(parser, "**");
         CHECK(printout == "<*, operator>, <*, operator>");
-        CHECK(writeout == "<*, 209>, <*, 209>");
     }
 }
 
@@ -141,9 +125,8 @@ TEST_CASE("Parse a punctuator") {
     Lexer parser;
 
     SECTION("Parse consecutive punctuators") {
-        auto [printout, writeout] = getParserOutput(parser, "{}");
+        auto printout = getParserOutput(parser, "{}");
         CHECK(printout == "<{, punctuator>, <}, punctuator>");
-        CHECK(writeout == "<{, 300>, <}, 301>");
     }
 }
 
@@ -159,16 +142,14 @@ TEST_CASE("Parse a code snippet") {
 
     SECTION("Parse a statement") {
         std::string code = "str c = 1;";
-        auto [printout, writeout] = getParserOutput(parser, code);
+        auto printout = getParserOutput(parser, code);
         CHECK(printout == "<str, keyword>, <c, identifier>, <=, operator>, <1, integer>, <;, punctuator>");
-        CHECK(writeout == "<str, 102>, <c, 0>, <=, 200>, <1, 1>, <;, 303>");
     }
 
     SECTION("Parse a code snippet") {
         std::string code = "\nint main()  \n{\n\treturn 0;  \n  }\n\n";
-        auto [printout, writeout] = getParserOutput(parser, code);
+        auto printout = getParserOutput(parser, code);
         CHECK(printout == "<int, keyword>, <main, identifier>, <(, punctuator>, <), punctuator>, <{, punctuator>, <return, keyword>, <0, integer>, <;, punctuator>, <}, punctuator>");
-        CHECK(writeout == "<int, 100>, <main, 0>, <(, 304>, <), 305>, <{, 300>, <return, 106>, <0, 1>, <;, 303>, <}, 301>");
     }
 
     SECTION("Parse a code snippet with error") {

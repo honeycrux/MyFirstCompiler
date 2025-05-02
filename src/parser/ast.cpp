@@ -20,8 +20,8 @@ export enum DataType {
     FLOAT_T,
     STR_T,
     BOOL_T,
-    ANY_T,
     FUNC_T,
+    ANY_T,
     NONE_T
 };
 
@@ -130,14 +130,14 @@ export class AstNode {
                     return true;
                 }
             }
-            if (type == ANY_T) {
+            if (type == DataType::ANY_T) {
                 return true;
             }
             return false;
         }
 
         bool typeEquals(const DataType type1, const DataType type2) const {
-            return type1 == type2 || type1 == ANY_T || type2 == ANY_T;
+            return type1 == type2 || type1 == DataType::ANY_T || type2 == DataType::ANY_T;
         }
 
         std::string getTypeName(const DataType& type) const {
@@ -209,7 +209,7 @@ export class AstNode {
         TypeCheckResult startTypeCheck() const {
             SymbolTable symbolTable{}; // starting table
             SymbolTableNode symbolTableNode{&symbolTable};
-            return this->typeCheck(symbolTableNode, NONE_T);
+            return this->typeCheck(symbolTableNode, DataType::NONE_T);
         }
 };
 
@@ -237,12 +237,12 @@ export class Start : public AstNode {
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
             for (const auto& decl : declarations) {
-                const auto result = decl->typeCheck(symbolTableNode, NONE_T);
+                const auto result = decl->typeCheck(symbolTableNode, DataType::NONE_T);
                 if (std::holds_alternative<TypeCheckError>(result)) {
                     return result;
                 }
             }
-            return TypeCheckSuccess{ NONE_T };
+            return TypeCheckSuccess{ DataType::NONE_T };
         }
 }; // declarations: AstNode[]
 
@@ -278,18 +278,18 @@ export class FuncDef : public AstNode {
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
             SymbolTable symbolTable{};
             SymbolTableNode newSymbolTableNode = symbolTableNode.createChild(&symbolTable);
-            const auto typeResult = type->typeCheck(newSymbolTableNode, NONE_T);
+            const auto typeResult = type->typeCheck(newSymbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(typeResult)) {
                 return typeResult;
             }
-            symbolTableNode.table->emplace(id.getValue(), SymbolTableEntry{id.getValue(), FUNC_T, false});
+            symbolTableNode.table->emplace(id.getValue(), SymbolTableEntry{id.getValue(), DataType::FUNC_T, false});
             for (const auto& param : params) {
-                const auto result = param->typeCheck(newSymbolTableNode, NONE_T);
+                const auto result = param->typeCheck(newSymbolTableNode, DataType::NONE_T);
                 if (std::holds_alternative<TypeCheckError>(result)) {
                     return result;
                 }
             }
-            return body->typeCheck(newSymbolTableNode, NONE_T);
+            return body->typeCheck(newSymbolTableNode, DataType::NONE_T);
         }
 }; // type: Token, id: Token, params: AstNode[], body: AstNode
 
@@ -312,14 +312,14 @@ export class Param : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto typeResult = type->typeCheck(symbolTableNode, NONE_T);
+            const auto typeResult = type->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(typeResult)) {
                 return typeResult;
             }
             const auto typeType = std::get<TypeCheckSuccess>(typeResult).type;
             SymbolTableEntry entry{id.getValue(), typeType, array};
             symbolTableNode.table->emplace(id.getValue(), entry);
-            return TypeCheckSuccess{ NONE_T };
+            return TypeCheckSuccess{ DataType::NONE_T };
         }
 }; // type: Token, id: Token, array: bool
 
@@ -347,7 +347,7 @@ export class VarDecl : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto typeResult = type->typeCheck(symbolTableNode, NONE_T);
+            const auto typeResult = type->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(typeResult)) {
                 return typeResult;
             }
@@ -358,7 +358,7 @@ export class VarDecl : public AstNode {
                     return result;
                 }
             }
-            return TypeCheckSuccess{ NONE_T };
+            return TypeCheckSuccess{ DataType::NONE_T };
         }
 }; // type: Token, varAssignables: AstNode[]
 
@@ -398,7 +398,7 @@ export class VarAssignable : public AstNode {
             }
             const auto varType = std::get<TypeCheckSuccess>(varResult).type;
             if (expr) {
-                const auto valueResult = (*expr)->typeCheck(symbolTableNode, NONE_T);
+                const auto valueResult = (*expr)->typeCheck(symbolTableNode, DataType::NONE_T);
                 if (std::holds_alternative<TypeCheckError>(valueResult)) {
                     return valueResult;
                 }
@@ -408,17 +408,17 @@ export class VarAssignable : public AstNode {
                 }
                 return TypeCheckSuccess{ valueType };
             }
-            return TypeCheckSuccess{ NONE_T };
+            return TypeCheckSuccess{ DataType::NONE_T };
         }
 }; // var: AstNode, expr?: AstNode
 
 export class Var : public AstNode {
     private:
         Token id;
-        std::optional<Token> arrayIndex;
+        std::optional<std::unique_ptr<AstNode>> arrayIndex;
 
     public:
-        Var(Token id, std::optional<Token> arrayIndex): AstNode("Var"), id(id), arrayIndex(arrayIndex) {}
+        Var(Token id, std::optional<std::unique_ptr<AstNode>> arrayIndex): AstNode("Var"), id(id), arrayIndex(std::move(arrayIndex)) {}
         ~Var() = default;
 
         std::string getWhere() const override {
@@ -427,23 +427,40 @@ export class Var : public AstNode {
 
         GeQ toQuadruples(int& globalLabelId, int intermediateId) const override {
             if (arrayIndex) {
-                return { {}, id.getValue() + "[" + arrayIndex->getValue() + "]" };
+                Quadruples quads;
+                const auto arrayIndexGeQ = (*arrayIndex)->toQuadruples(globalLabelId, intermediateId + 1);
+                quads.insert(quads.end(), arrayIndexGeQ.quads.begin(), arrayIndexGeQ.quads.end());
+                const auto intermediate = getIntermediate(intermediateId);
+                quads.emplace_back(Quadruple{"[]", id.getValue(), arrayIndexGeQ.result, intermediate});
+                return { quads, intermediate };
             }
             return { {}, id.getValue() };
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            if (assignedType != NONE_T) {
+            if (assignedType != DataType::NONE_T) {
                 SymbolTableEntry entry{id.getValue(), assignedType, arrayIndex.has_value()};
                 symbolTableNode.table->emplace(id.getValue(), entry);
             }
             auto entry = findSymbol(symbolTableNode, id.getValue());
             if (entry.has_value()) {
-                if (entry->isArray && !arrayIndex.has_value()) {
-                    return TypeCheckError{ "Array variable used without index: " + id.getValue(), getWhere() };
+                if (entry->isArray) {
+                    if (!arrayIndex.has_value()) {
+                        return TypeCheckError{ "Array variable used without index: " + id.getValue(), getWhere() };
+                    }
+                    const auto arrayIndexResult = (*arrayIndex)->typeCheck(symbolTableNode, DataType::NONE_T);
+                    if (std::holds_alternative<TypeCheckError>(arrayIndexResult)) {
+                        return arrayIndexResult;
+                    }
+                    const auto arrayIndexType = std::get<TypeCheckSuccess>(arrayIndexResult).type;
+                    if (!checkType(arrayIndexType, {DataType::INT_T})) {
+                        return TypeCheckError{ "Array index must be int: " + id.getValue(), getWhere() };
+                    }
                 }
-                if (!entry->isArray && arrayIndex.has_value()) {
-                    return TypeCheckError{ "Non-array variable used with index: " + id.getValue(), getWhere() };
+                else {
+                    if (arrayIndex.has_value()) {
+                        return TypeCheckError{ "Non-array variable used with index: " + id.getValue(), getWhere() };
+                    }
                 }
                 return TypeCheckSuccess{ entry.value().type }; // has type
             }
@@ -469,13 +486,13 @@ export class Type : public AstNode {
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
             if (TerminalFactory::getKeyword("int").matchesToken(type)) {
-                return TypeCheckSuccess{ INT_T };
+                return TypeCheckSuccess{ DataType::INT_T };
             }
             else if (TerminalFactory::getKeyword("float").matchesToken(type)) {
-                return TypeCheckSuccess{ FLOAT_T };
+                return TypeCheckSuccess{ DataType::FLOAT_T };
             }
             else if (TerminalFactory::getKeyword("str").matchesToken(type)) {
-                return TypeCheckSuccess{ STR_T };
+                return TypeCheckSuccess{ DataType::STR_T };
             }
             return TypeCheckError{ "Invalid type", getWhere() };
         }
@@ -499,13 +516,13 @@ export class Constant : public AstNode {
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
             if (value.getType() == TokenType::INTEGER) {
-                return TypeCheckSuccess{ INT_T };
+                return TypeCheckSuccess{ DataType::INT_T };
             }
             else if (value.getType() == TokenType::FLOAT) {
-                return TypeCheckSuccess{ FLOAT_T };
+                return TypeCheckSuccess{ DataType::FLOAT_T };
             }
             else if (value.getType() == TokenType::STRING) {
-                return TypeCheckSuccess{ STR_T };
+                return TypeCheckSuccess{ DataType::STR_T };
             }
             return TypeCheckError{ "Invalid constant type", getWhere() };
         }
@@ -537,12 +554,12 @@ export class BlockStmt : public AstNode {
             SymbolTable symbolTable{};
             SymbolTableNode newSymbolTableNode = symbolTableNode.createChild(&symbolTable);
             for (const auto& stmt : statements) {
-                const auto result = stmt->typeCheck(newSymbolTableNode, NONE_T);
+                const auto result = stmt->typeCheck(newSymbolTableNode, DataType::NONE_T);
                 if (std::holds_alternative<TypeCheckError>(result)) {
                     return result;
                 }
             }
-            return TypeCheckSuccess{ NONE_T };
+            return TypeCheckSuccess{ DataType::NONE_T };
         }
 }; // stmts: AstNode[]
 
@@ -596,24 +613,24 @@ export class IfStmt : public AstNode {
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
             SymbolTable symbolTable{};
             SymbolTableNode newSymbolTableNode = symbolTableNode.createChild(&symbolTable);
-            const auto condResult = condExpr->typeCheck(newSymbolTableNode, NONE_T);
+            const auto condResult = condExpr->typeCheck(newSymbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(condResult)) {
                 return condResult;
             }
-            if (!checkType(std::get<TypeCheckSuccess>(condResult).type, {BOOL_T, INT_T})) {
+            if (!checkType(std::get<TypeCheckSuccess>(condResult).type, {DataType::BOOL_T, DataType::INT_T})) {
                 return TypeCheckError{ "Condition must be boolean", condExpr->getWhere() };
             }
-            const auto thenResult = thenBody->typeCheck(newSymbolTableNode, NONE_T);
+            const auto thenResult = thenBody->typeCheck(newSymbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(thenResult)) {
                 return thenResult;
             }
             if (elseBody) {
-                const auto elseResult = (*elseBody)->typeCheck(newSymbolTableNode, NONE_T);
+                const auto elseResult = (*elseBody)->typeCheck(newSymbolTableNode, DataType::NONE_T);
                 if (std::holds_alternative<TypeCheckError>(elseResult)) {
                     return elseResult;
                 }
             }
-            return TypeCheckSuccess{ NONE_T };
+            return TypeCheckSuccess{ DataType::NONE_T };
         }
 }; // condExpr: AstNode, thenBody: AstNode, elseBody: AstNode
 
@@ -657,18 +674,18 @@ export class WhileStmt : public AstNode {
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
             SymbolTable symbolTable{};
             SymbolTableNode newSymbolTableNode = symbolTableNode.createChild(&symbolTable);
-            const auto condResult = condExpr->typeCheck(newSymbolTableNode, NONE_T);
+            const auto condResult = condExpr->typeCheck(newSymbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(condResult)) {
                 return condResult;
             }
-            if (!checkType(std::get<TypeCheckSuccess>(condResult).type, {BOOL_T, INT_T})) {
+            if (!checkType(std::get<TypeCheckSuccess>(condResult).type, {DataType::BOOL_T, DataType::INT_T})) {
                 return TypeCheckError{ "Condition must be boolean", condExpr->getWhere() };
             }
-            const auto bodyResult = body->typeCheck(newSymbolTableNode, NONE_T);
+            const auto bodyResult = body->typeCheck(newSymbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(bodyResult)) {
                 return bodyResult;
             }
-            return TypeCheckSuccess{ NONE_T };
+            return TypeCheckSuccess{ DataType::NONE_T };
         }
 }; // condExpr: AstNode, body: AstNode
 
@@ -721,26 +738,26 @@ export class ForStmt : public AstNode {
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
             SymbolTable symbolTable{};
             SymbolTableNode newSymbolTableNode = symbolTableNode.createChild(&symbolTable);
-            const auto varResult = forVarDecl->typeCheck(newSymbolTableNode, NONE_T);
+            const auto varResult = forVarDecl->typeCheck(newSymbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(varResult)) {
                 return varResult;
             }
-            const auto condResult = condExpr->typeCheck(newSymbolTableNode, NONE_T);
+            const auto condResult = condExpr->typeCheck(newSymbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(condResult)) {
                 return condResult;
             }
-            if (!checkType(std::get<TypeCheckSuccess>(condResult).type, {BOOL_T, INT_T})) {
+            if (!checkType(std::get<TypeCheckSuccess>(condResult).type, {DataType::BOOL_T, DataType::INT_T})) {
                 return TypeCheckError{ "Condition must be boolean", condExpr->getWhere() };
             }
-            const auto incrResult = incrExpr->typeCheck(newSymbolTableNode, NONE_T);
+            const auto incrResult = incrExpr->typeCheck(newSymbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(incrResult)) {
                 return incrResult;
             }
-            const auto bodyResult = body->typeCheck(newSymbolTableNode, NONE_T);
+            const auto bodyResult = body->typeCheck(newSymbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(bodyResult)) {
                 return bodyResult;
             }
-            return TypeCheckSuccess{ NONE_T };
+            return TypeCheckSuccess{ DataType::NONE_T };
         }
 }; // type?: Token, forVarDecl: AstNode[], condExpr: AstNode, incrExpr: AstNode
 
@@ -751,7 +768,7 @@ export class VarAssign : public AstNode {
 
     public:
         VarAssign(std::unique_ptr<AstNode> var, std::unique_ptr<AstNode> expr)
-            : AstNode("VarAssignable"), var(std::move(var)), expr(std::move(expr)) {}
+            : AstNode("VarAssign"), var(std::move(var)), expr(std::move(expr)) {}
         ~VarAssign() = default;
 
         std::string getWhere() const override {
@@ -777,7 +794,7 @@ export class VarAssign : public AstNode {
                 return varResult;
             }
             const auto varType = std::get<TypeCheckSuccess>(varResult).type;
-            const auto valueResult = expr->typeCheck(symbolTableNode, NONE_T);
+            const auto valueResult = expr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(valueResult)) {
                 return valueResult;
             }
@@ -813,7 +830,7 @@ export class ForVarDecl : public AstNode {
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
             // if (type) {
-            //     const auto typeResult = (*type)->typeCheck(symbolTableNode, NONE_T);
+            //     const auto typeResult = (*type)->typeCheck(symbolTableNode, DataType::NONE_T);
             //     if (std::holds_alternative<TypeCheckError>(typeResult)) {
             //         return typeResult;
             //     }
@@ -826,12 +843,12 @@ export class ForVarDecl : public AstNode {
             //     }
             // }
             for (const auto& var : varAssigns) {
-                const auto result = var->typeCheck(symbolTableNode, NONE_T);
+                const auto result = var->typeCheck(symbolTableNode, DataType::NONE_T);
                 if (std::holds_alternative<TypeCheckError>(result)) {
                     return result;
                 }
             }
-            return TypeCheckSuccess{ NONE_T };
+            return TypeCheckSuccess{ DataType::NONE_T };
         }
 }; // type: Token, varAssigns: AstNode[]
 
@@ -861,13 +878,13 @@ export class ReturnStmt : public AstNode {
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
             if (expr) {
-                const auto valueResult = (*expr)->typeCheck(symbolTableNode, NONE_T);
+                const auto valueResult = (*expr)->typeCheck(symbolTableNode, DataType::NONE_T);
                 if (std::holds_alternative<TypeCheckError>(valueResult)) {
                     return valueResult;
                 }
                 // No return type checking for now
             }
-            return TypeCheckSuccess{ NONE_T };
+            return TypeCheckSuccess{ DataType::NONE_T };
         }
 }; // expr?: AstNode
 
@@ -899,12 +916,12 @@ export class AssignExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto varResult = var->typeCheck(symbolTableNode, NONE_T);
+            const auto varResult = var->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(varResult)) {
                 return varResult;
             }
             const auto varType = std::get<TypeCheckSuccess>(varResult).type;
-            const auto valueResult = expr->typeCheck(symbolTableNode, NONE_T);
+            const auto valueResult = expr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(valueResult)) {
                 return valueResult;
             }
@@ -942,23 +959,23 @@ export class OrExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            if (!checkType(lexprType, {BOOL_T, INT_T})) {
+            if (!checkType(lexprType, {DataType::BOOL_T, DataType::INT_T})) {
                 return TypeCheckError{ "Left operand must be boolean", lexpr->getWhere() };
             }
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
             const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
-            if (!checkType(rexprType, {BOOL_T, INT_T})) {
+            if (!checkType(rexprType, {DataType::BOOL_T, DataType::INT_T})) {
                 return TypeCheckError{ "Right operand must be boolean", rexpr->getWhere() };
             }
-            return TypeCheckSuccess{ BOOL_T };
+            return TypeCheckSuccess{ DataType::BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -988,23 +1005,23 @@ export class AndExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            if (!checkType(lexprType, {BOOL_T, INT_T})) {
+            if (!checkType(lexprType, {DataType::BOOL_T, DataType::INT_T})) {
                 return TypeCheckError{ "Left operand must be boolean", lexpr->getWhere() };
             }
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
             const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
-            if (!checkType(rexprType, {BOOL_T, INT_T})) {
+            if (!checkType(rexprType, {DataType::BOOL_T, DataType::INT_T})) {
                 return TypeCheckError{ "Right operand must be boolean", rexpr->getWhere() };
             }
-            return TypeCheckSuccess{ BOOL_T };
+            return TypeCheckSuccess{ DataType::BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -1034,12 +1051,12 @@ export class EqualExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
@@ -1047,7 +1064,7 @@ export class EqualExpr : public AstNode {
             if (!typeEquals(lexprType, rexprType)) {
                 return TypeCheckError{ "Type mismatch in comparison", getWhere() };
             }
-            return TypeCheckSuccess{ BOOL_T };
+            return TypeCheckSuccess{ DataType::BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -1077,12 +1094,12 @@ export class NotEqualExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
@@ -1090,7 +1107,7 @@ export class NotEqualExpr : public AstNode {
             if (!typeEquals(lexprType, rexprType)) {
                 return TypeCheckError{ "Type mismatch in comparison", getWhere() };
             }
-            return TypeCheckSuccess{ BOOL_T };
+            return TypeCheckSuccess{ DataType::BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -1120,23 +1137,23 @@ export class LessExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
             const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
             if (!(
-                checkType(lexprType, {INT_T, FLOAT_T}) && checkType(rexprType, {INT_T, FLOAT_T}) ||
-                checkType(lexprType, {STR_T}) && checkType(rexprType, {STR_T})
+                checkType(lexprType, {DataType::INT_T, DataType::FLOAT_T}) && checkType(rexprType, {DataType::INT_T, DataType::FLOAT_T}) ||
+                checkType(lexprType, {DataType::STR_T}) && checkType(rexprType, {DataType::STR_T})
             )) {
                 return TypeCheckError{ "Type mismatch in comparison", getWhere() };
             }
-            return TypeCheckSuccess{ BOOL_T };
+            return TypeCheckSuccess{ DataType::BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -1166,23 +1183,23 @@ export class LessEqualExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
             const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
             if (!(
-                checkType(lexprType, {INT_T, FLOAT_T}) && checkType(rexprType, {INT_T, FLOAT_T}) ||
-                checkType(lexprType, {STR_T}) && checkType(rexprType, {STR_T})
+                checkType(lexprType, {DataType::INT_T, DataType::FLOAT_T}) && checkType(rexprType, {DataType::INT_T, DataType::FLOAT_T}) ||
+                checkType(lexprType, {DataType::STR_T}) && checkType(rexprType, {DataType::STR_T})
             )) {
                 return TypeCheckError{ "Type mismatch in comparison", getWhere() };
             }
-            return TypeCheckSuccess{ BOOL_T };
+            return TypeCheckSuccess{ DataType::BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -1212,23 +1229,23 @@ export class GreaterExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
             const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
             if (!(
-                checkType(lexprType, {INT_T, FLOAT_T}) && checkType(rexprType, {INT_T, FLOAT_T}) ||
-                checkType(lexprType, {STR_T}) && checkType(rexprType, {STR_T})
+                checkType(lexprType, {DataType::INT_T, DataType::FLOAT_T}) && checkType(rexprType, {DataType::INT_T, DataType::FLOAT_T}) ||
+                checkType(lexprType, {DataType::STR_T}) && checkType(rexprType, {DataType::STR_T})
             )) {
                 return TypeCheckError{ "Type mismatch in comparison", getWhere() };
             }
-            return TypeCheckSuccess{ BOOL_T };
+            return TypeCheckSuccess{ DataType::BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -1258,23 +1275,23 @@ export class GreaterEqualExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
             const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
             if (!(
-                checkType(lexprType, {INT_T, FLOAT_T}) && checkType(rexprType, {INT_T, FLOAT_T}) ||
-                checkType(lexprType, {STR_T}) && checkType(rexprType, {STR_T})
+                checkType(lexprType, {DataType::INT_T, DataType::FLOAT_T}) && checkType(rexprType, {DataType::INT_T, DataType::FLOAT_T}) ||
+                checkType(lexprType, {DataType::STR_T}) && checkType(rexprType, {DataType::STR_T})
             )) {
                 return TypeCheckError{ "Type mismatch in comparison", getWhere() };
             }
-            return TypeCheckSuccess{ BOOL_T };
+            return TypeCheckSuccess{ DataType::BOOL_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -1304,26 +1321,29 @@ export class AddExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
             const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
             if (!(
-                checkType(lexprType, {INT_T, FLOAT_T}) && checkType(rexprType, {INT_T, FLOAT_T}) ||
-                checkType(lexprType, {STR_T}) && checkType(rexprType, {STR_T})
+                checkType(lexprType, {DataType::INT_T, DataType::FLOAT_T}) && checkType(rexprType, {DataType::INT_T, DataType::FLOAT_T}) ||
+                checkType(lexprType, {DataType::STR_T}) && checkType(rexprType, {DataType::STR_T})
             )) {
                 return TypeCheckError{ "Cannot add types " + getTypeName(lexprType) + " and " + getTypeName(rexprType), getWhere() };
             }
-            if (lexprType == FLOAT_T || rexprType == FLOAT_T) {
-                return TypeCheckSuccess{ FLOAT_T };
+            if (lexprType == DataType::FLOAT_T || rexprType == DataType::FLOAT_T) {
+                return TypeCheckSuccess{ DataType::FLOAT_T };
             }
-            return TypeCheckSuccess{ INT_T };
+            else if (lexprType == DataType::STR_T || rexprType == DataType::STR_T) {
+                return TypeCheckSuccess{ DataType::STR_T };
+            }
+            return TypeCheckSuccess{ DataType::INT_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -1353,26 +1373,26 @@ export class SubExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            if (!checkType(lexprType, {INT_T, FLOAT_T})) {
+            if (!checkType(lexprType, {DataType::INT_T, DataType::FLOAT_T})) {
                 return TypeCheckError{ "The operands must be numeric", lexpr->getWhere() };
             }
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
             const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
-            if (!checkType(rexprType, {INT_T, FLOAT_T})) {
+            if (!checkType(rexprType, {DataType::INT_T, DataType::FLOAT_T})) {
                 return TypeCheckError{ "The operands must be numeric", rexpr->getWhere() };
             }
-            if (lexprType == FLOAT_T || rexprType == FLOAT_T) {
-                return TypeCheckSuccess{ FLOAT_T };
+            if (lexprType == DataType::FLOAT_T || rexprType == DataType::FLOAT_T) {
+                return TypeCheckSuccess{ DataType::FLOAT_T };
             }
-            return TypeCheckSuccess{ INT_T };
+            return TypeCheckSuccess{ DataType::INT_T };
         }
 
 }; // lexpr: AstNode, rexpr: AstNode
@@ -1402,26 +1422,26 @@ export class MulExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            if (!checkType(lexprType, {INT_T, FLOAT_T})) {
+            if (!checkType(lexprType, {DataType::INT_T, DataType::FLOAT_T})) {
                 return TypeCheckError{ "The operands must be numeric", lexpr->getWhere() };
             }
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
             const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
-            if (!checkType(rexprType, {INT_T, FLOAT_T})) {
+            if (!checkType(rexprType, {DataType::INT_T, DataType::FLOAT_T})) {
                 return TypeCheckError{ "The operands must be numeric", rexpr->getWhere() };
             }
-            if (lexprType == FLOAT_T || rexprType == FLOAT_T) {
-                return TypeCheckSuccess{ FLOAT_T };
+            if (lexprType == DataType::FLOAT_T || rexprType == DataType::FLOAT_T) {
+                return TypeCheckSuccess{ DataType::FLOAT_T };
             }
-            return TypeCheckSuccess{ INT_T };
+            return TypeCheckSuccess{ DataType::INT_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -1451,26 +1471,26 @@ export class DivExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            if (!checkType(lexprType, {INT_T, FLOAT_T})) {
+            if (!checkType(lexprType, {DataType::INT_T, DataType::FLOAT_T})) {
                 return TypeCheckError{ "The operands must be numeric", lexpr->getWhere() };
             }
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
             const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
-            if (!checkType(rexprType, {INT_T, FLOAT_T})) {
+            if (!checkType(rexprType, {DataType::INT_T, DataType::FLOAT_T})) {
                 return TypeCheckError{ "The operands must be numeric", rexpr->getWhere() };
             }
-            if (lexprType == FLOAT_T || rexprType == FLOAT_T) {
-                return TypeCheckSuccess{ FLOAT_T };
+            if (lexprType == DataType::FLOAT_T || rexprType == DataType::FLOAT_T) {
+                return TypeCheckSuccess{ DataType::FLOAT_T };
             }
-            return TypeCheckSuccess{ INT_T };
+            return TypeCheckSuccess{ DataType::INT_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -1500,26 +1520,26 @@ export class ModExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto lexprResult = lexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto lexprResult = lexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(lexprResult)) {
                 return lexprResult;
             }
             const auto lexprType = std::get<TypeCheckSuccess>(lexprResult).type;
-            if (!checkType(lexprType, {INT_T, FLOAT_T})) {
+            if (!checkType(lexprType, {DataType::INT_T, DataType::FLOAT_T})) {
                 return TypeCheckError{ "The operands must be numeric", lexpr->getWhere() };
             }
-            const auto rexprResult = rexpr->typeCheck(symbolTableNode, NONE_T);
+            const auto rexprResult = rexpr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(rexprResult)) {
                 return rexprResult;
             }
             const auto rexprType = std::get<TypeCheckSuccess>(rexprResult).type;
-            if (!checkType(rexprType, {INT_T, FLOAT_T})) {
+            if (!checkType(rexprType, {DataType::INT_T, DataType::FLOAT_T})) {
                 return TypeCheckError{ "The operands must be numeric", rexpr->getWhere() };
             }
-            if (lexprType == FLOAT_T || rexprType == FLOAT_T) {
-                return TypeCheckSuccess{ FLOAT_T };
+            if (lexprType == DataType::FLOAT_T || rexprType == DataType::FLOAT_T) {
+                return TypeCheckSuccess{ DataType::FLOAT_T };
             }
-            return TypeCheckSuccess{ INT_T };
+            return TypeCheckSuccess{ DataType::INT_T };
         }
 }; // lexpr: AstNode, rexpr: AstNode
 
@@ -1545,12 +1565,12 @@ export class UnaryPlusExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto valueResult = expr->typeCheck(symbolTableNode, NONE_T);
+            const auto valueResult = expr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(valueResult)) {
                 return valueResult;
             }
             const auto valueType = std::get<TypeCheckSuccess>(valueResult).type;
-            if (!checkType(valueType, {INT_T, FLOAT_T})) {
+            if (!checkType(valueType, {DataType::INT_T, DataType::FLOAT_T})) {
                 return TypeCheckError{ "The operand must be numeric", expr->getWhere() };
             }
             return TypeCheckSuccess{ valueType };
@@ -1579,12 +1599,12 @@ export class UnaryMinusExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto valueResult = expr->typeCheck(symbolTableNode, NONE_T);
+            const auto valueResult = expr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(valueResult)) {
                 return valueResult;
             }
             const auto valueType = std::get<TypeCheckSuccess>(valueResult).type;
-            if (!checkType(valueType, {INT_T, FLOAT_T})) {
+            if (!checkType(valueType, {DataType::INT_T, DataType::FLOAT_T})) {
                 return TypeCheckError{ "The operand must be numeric", expr->getWhere() };
             }
             return TypeCheckSuccess{ valueType };
@@ -1613,15 +1633,15 @@ export class NotExpr : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto valueResult = expr->typeCheck(symbolTableNode, NONE_T);
+            const auto valueResult = expr->typeCheck(symbolTableNode, DataType::NONE_T);
             if (std::holds_alternative<TypeCheckError>(valueResult)) {
                 return valueResult;
             }
             const auto valueType = std::get<TypeCheckSuccess>(valueResult).type;
-            if (!checkType(valueType, {BOOL_T, INT_T})) {
+            if (!checkType(valueType, {DataType::BOOL_T, DataType::INT_T})) {
                 return TypeCheckError{ "The operand must be boolean", expr->getWhere() };
             }
-            return TypeCheckSuccess{ BOOL_T };
+            return TypeCheckSuccess{ DataType::BOOL_T };
         }
 }; // expr: AstNode
 
@@ -1651,20 +1671,20 @@ export class FuncCall : public AstNode {
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
             const auto entry = findSymbol(symbolTableNode, id.getValue());
-            if (entry.has_value()) {
+            if (!entry.has_value()) {
                 return TypeCheckError{ "Function not found", id.getPosition() };
             }
-            if (entry.value().type != FUNC_T) {
+            if (entry.value().type != DataType::FUNC_T) {
                 return TypeCheckError{ "Identifier is not a function", id.getPosition() };
             }
             for (const auto& arg : exprs) {
-                const auto argResult = arg->typeCheck(symbolTableNode, NONE_T);
+                const auto argResult = arg->typeCheck(symbolTableNode, DataType::NONE_T);
                 if (std::holds_alternative<TypeCheckError>(argResult)) {
                     return argResult;
                 }
                 // No argument type check for now
             }
             // Function call returns the any type for now
-            return TypeCheckSuccess{ ANY_T };
+            return TypeCheckSuccess{ DataType::ANY_T };
         }
 }; // id: Token, exprs: AstNode[]

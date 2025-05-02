@@ -1,22 +1,27 @@
 # Building the AST
 
 ## Simplified Parse Tree
-Should ignore most punctuations but keep operators.
+The simplified parse tree should ignore some punctuations, remove some non-terminals, and fold the lists.
+
+Some regular expression notations are borrowed to express the simplified grammar:
+- brackets followed immediately by a star (expression)* means the expression should appear zero or more times
+- brackets followed immediately by a plus (expression)+ means the expression should appear one or more times
+- brackets followed immediately by a question mark (expression)? means the expression should appear zero or one time
 
 ```
-Start ::= [Decl]+
+Start ::= (Decl)+
 
-FuncDef ::= Type id ( [Param ,]+ ) BlockStmt
+FuncDef ::= Type id ( (Param ,)* (Param)? (,)? ) BlockStmt
 Param ::= Type id [ ] | Type id
 
-VarDecl ::= Type [VarAssignable ,]+ ;
-VarAssignable ::= Var = Expr | Var
+VarDecl ::= Type VarAssignable (, VarAssignable)* ;
+VarAssignable ::= id = Expr | id [ intconst ] | id
 
-Var ::= id [ intconst ] | id
+Var ::= id [ Var ] | id [ Constant ] | id
 Type ::= int | float | str
 Constant ::= intconst | floatconst | strconst
 
-BlockStmt ::= { [VarDecl | IfStmt | WhileStmt | ForStmt | ReturnStmt | expr ; | ; ]+ }
+BlockStmt ::= { (VarDecl | IfStmt | WhileStmt | ForStmt | ReturnStmt | expr ; | ;)* }
 
 expr is one of AssignExpr | OrExpr | AndExpr | EqualityExpr | RelationalExpr | SumExpr | MulExpr | UnaryExpr | FuncCall | Constant | Var
 
@@ -25,20 +30,20 @@ IfStmt ::= if ( expr ) BlockStmt | if ( expr ) BlockStmt else BlockStmt
 WhileStmt ::= while ( expr ) BlockStmt
 
 ForStmt ::= for ( ForVarDecl ; Expr ; Expr ) BlockStmt
-ForVarDecl ::= [VarAssign, ]+
+ForVarDecl ::= (VarAssign (, VarAssign)*)?
 VarAssign ::= Var = Expr
 
 ReturnStmt ::= return expr ; | return ;
 
 AssignExpr ::= Var = expr
-OrExpr ::= AndExpr [|| AndExpr]+
-AndExpr ::= EqualityExpr [&& EqualityExpr]+
-EqualityExpr ::= RelationalExpr [EqualityOp RelationalExpr]+
-RelationalExpr ::= SumExpr [RelationalOp SumExpr]+
-SumExpr ::= MulExpr [SumOp MulExpr]+
-MulExpr ::= UnaryExpr [MulOp UnaryExpr]+
+OrExpr ::= AndExpr (|| AndExpr)+
+AndExpr ::= EqualityExpr (&& EqualityExpr)+
+EqualityExpr ::= RelationalExpr (EqualityOp RelationalExpr)+
+RelationalExpr ::= SumExpr (RelationalOp SumExpr)+
+SumExpr ::= MulExpr (SumOp MulExpr)+
+MulExpr ::= UnaryExpr (MulOp UnaryExpr)+
 UnaryExpr ::= UnaryOp UnaryExpr
-FuncCall ::= id ( [Expr ,]+ )
+FuncCall ::= id ( (Expr ,)* )
 Factor ::= ( Expr )
 ```
 
@@ -50,7 +55,7 @@ FuncDef ( type: Token, id: Token, params: AstNode[], body: AstNode )
 Param ( type: Token, id: Token, array: bool )
 VarDecl ( type: Token, varAssignables: AstNode[] )
 VarAssignable ( var: AstNode, value?: AstNode )
-Var ( id: Token, arraySize?: Token )
+Var ( id: Token, arrayIndex: AstNode )
 Type ( type: Token )
 Constant ( value: Token )
 BlockStmt ( statements: AstNode[] )

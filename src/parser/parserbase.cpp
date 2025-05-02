@@ -39,10 +39,10 @@ class SimpleParseTree {
     private:
         const NonTerminal nonTerminal;
         std::vector<std::variant<Token, SimpleParseTree>> children;
-        const AstHandlerMap handlerMap;
+        const AstHandlerMap astHandlerMap;
 
     public:
-        SimpleParseTree(const NonTerminal& nonTerminal, const AstHandlerMap& handlerMap) : nonTerminal(nonTerminal), handlerMap(handlerMap) {}
+        SimpleParseTree(const NonTerminal& nonTerminal, const AstHandlerMap& astHandlerMap) : nonTerminal(nonTerminal), astHandlerMap(astHandlerMap) {}
 
         NonTerminal getNonTerminal() const {
             return nonTerminal;
@@ -53,8 +53,8 @@ class SimpleParseTree {
         }
 
         std::unique_ptr<AstNode> toAst() const {
-            auto handlerIter = handlerMap.find(nonTerminal);
-            if (handlerIter == handlerMap.end()) {
+            auto handlerIter = astHandlerMap.find(nonTerminal);
+            if (handlerIter == astHandlerMap.end()) {
                 throw std::runtime_error("No handler found for non-terminal: " + std::string{nonTerminal.getName()});
             }
             const auto& handler = handlerIter->second;
@@ -85,7 +85,7 @@ class ParseTree {
         const NonTerminal nonTerminal;
         std::vector<std::variant<Token, ParseTree>> children;
 
-        std::vector<std::variant<Token, SimpleParseTree>> simplifyInner(const SimplifyInstructionMap& instructionMap, const AstHandlerMap& handlerMap) const {
+        std::vector<std::variant<Token, SimpleParseTree>> simplifyInner(const SimplifyInstructionMap& instructionMap, const AstHandlerMap& astHandlerMap) const {
             // Simplify the children first
             std::vector<std::variant<Token, SimpleParseTree>> simplified;
             for (const auto& child : children) {
@@ -93,7 +93,7 @@ class ParseTree {
                     simplified.push_back(std::get<Token>(child));
                 } else if (std::holds_alternative<ParseTree>(child)) {
                     auto parseTreeChild = std::get<ParseTree>(child);
-                    auto simplifiedChildren = parseTreeChild.simplifyInner(instructionMap, handlerMap);
+                    auto simplifiedChildren = parseTreeChild.simplifyInner(instructionMap, astHandlerMap);
                     for (const auto& simplifiedChild : simplifiedChildren) {
                         simplified.push_back(simplifiedChild);
                     }
@@ -113,7 +113,7 @@ class ParseTree {
             if (toMergeUp) {
                 return simplified;
             } else {
-                SimpleParseTree simplifiedTree(nonTerminal, handlerMap);
+                SimpleParseTree simplifiedTree(nonTerminal, astHandlerMap);
                 for (const auto& child : simplified) {
                     simplifiedTree.addChild(child);
                 }
@@ -140,8 +140,8 @@ class ParseTree {
                 + std::to_string(children.size()) + " children, expected 1");
         }
 
-        SimpleParseTree simplify(const SimplifyInstructionMap& instructionMap, const AstHandlerMap& handlerMap) const {
-            const auto simplified = simplifyInner(instructionMap, handlerMap);
+        SimpleParseTree simplify(const SimplifyInstructionMap& instructionMap, const AstHandlerMap& astHandlerMap) const {
+            const auto simplified = simplifyInner(instructionMap, astHandlerMap);
             if (simplified.size() == 1 && std::holds_alternative<SimpleParseTree>(simplified[0])) {
                 return std::get<SimpleParseTree>(simplified[0]);
             }

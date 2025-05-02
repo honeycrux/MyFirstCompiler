@@ -57,15 +57,15 @@ export class Lexer {
                 bool accepted = false;
                 for (const auto& acceptor : acceptors) {
                     auto result = acceptor->accept(codeIter, codeEnd, code.begin());
-                    if (std::holds_alternative<AcceptResult>(result)) {
-                        AcceptResult acceptResult = std::get<AcceptResult>(result);
+                    if (std::holds_alternative<TokenAcceptResult>(result)) {
+                        TokenAcceptResult acceptResult = std::get<TokenAcceptResult>(result);
                         tokens.push_back(acceptResult.token);
                         codeIter = acceptResult.next;
                         accepted = true;
                         break;
                     }
-                    else if (std::holds_alternative<RejectResult>(result)) {
-                        RejectResult rejectResult = std::get<RejectResult>(result);
+                    else if (std::holds_alternative<TokenRejectResult>(result)) {
+                        TokenRejectResult rejectResult = std::get<TokenRejectResult>(result);
                         bool iterMoved = rejectResult.where != codeIter;
                         if (iterMoved) {
                             return LexicalError(rejectResult.message + " (at position " + formatPosition(code.begin(), rejectResult.where) + ")");
@@ -81,17 +81,12 @@ export class Lexer {
         }
 
         std::string getPrintString(const std::vector<Token>& tokens) const {
+            if (tokens.empty()) {
+                return "";
+            }
             std::ostringstream oss;
             oss << std::accumulate(tokens.begin() + 1, tokens.end(), tokens[0].toStringPrint(), [](const std::string& acc, const Token& token) {
                 return acc + ", " + token.toStringPrint();
-            });
-            return oss.str();
-        }
-
-        std::string getWriteString(const std::vector<Token>& tokens) const {
-            std::ostringstream oss;
-            oss << std::accumulate(tokens.begin() + 1, tokens.end(), tokens[0].toStringWrite(), [](const std::string& acc, const Token& token) {
-                return acc + ", " + token.toStringWrite();
             });
             return oss.str();
         }

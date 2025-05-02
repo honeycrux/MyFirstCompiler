@@ -2,9 +2,8 @@ module;
 
 #include <string>
 #include <map>
-#include <string_view>
 #include <vector>
-#include <algorithm>
+#include <iostream>
 
 export module token;
 
@@ -28,18 +27,6 @@ const std::map<TokenType, std::string_view> tokenTypeNamesMap {
     {TokenType::PUNCTUATOR, "punctuator"},
 };
 
-int calculatePosition(const std::string_view::const_iterator begin, const std::string_view::const_iterator where) {
-    return std::distance(begin, where);
-}
-
-std::string formatPosition(const std::string_view::const_iterator begin, const std::string_view::const_iterator where) {
-    const int line = std::count(begin, where, '\n') + 1;
-    std::string_view::const_iterator lineStart = std::find_if(std::reverse_iterator<std::string_view::const_iterator>(where), std::reverse_iterator<std::string_view::const_iterator>(begin), [](char c) { return c == '\n'; }).base();
-    const int column = std::distance(lineStart, where) + 1;
-    const std::string position = std::to_string(line) + ":" + std::to_string(column);
-    return position;
-}
-
 export class Token {
     private:
         const int id;
@@ -49,15 +36,11 @@ export class Token {
         const std::string position;
 
     public:
-        Token(int id, TokenType type, std::string_view value, std::string_view::const_iterator begin, std::string_view::const_iterator where)
-            : value(value), type(type), id(id), positionNumber(calculatePosition(begin, where)), position(formatPosition(begin, where)) {}
+        Token(int id, TokenType type, std::string_view value, int positionNumber, std::string position)
+            : value(value), type(type), id(id), positionNumber(positionNumber), position(position) {}
 
         std::string toStringPrint() const {
             return "<" + value + ", " + std::string(tokenTypeNamesMap.at(type)) + ">";
-        }
-
-        std::string toStringWrite() const {
-            return "<" + value + ", " + std::to_string(id) + ">";
         }
 
         int getId() const {
@@ -79,4 +62,27 @@ export class Token {
         std::string getPosition() const {
             return position;
         }
+
+        friend std::ostream& operator<<(std::ostream& os, const Token& token);
+
+        static Token fromFile(std::istream& is) {
+            int id;
+            int typeId;
+            std::string value;
+            int positionNumber;
+            std::string position;
+
+            is >> typeId >> value >> positionNumber >> position;
+
+            return Token(id, static_cast<TokenType>(typeId), value, positionNumber, position);
+        }
 };
+
+std::ostream& operator<<(std::ostream& os, const Token& token) {
+    os << token.getId() << " "
+        << token.getType() << " "
+        << token.getValue() << " "
+        << token.getPositionNumber() << " "
+        << token.getPosition();
+    return os;
+}

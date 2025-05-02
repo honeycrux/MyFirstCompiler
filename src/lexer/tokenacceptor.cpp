@@ -11,17 +11,17 @@ export module tokenacceptor;
 import token;
 import tokenfactory;
 
-export struct AcceptResult {
+export struct TokenAcceptResult {
     Token token;
     std::string_view::const_iterator next;
 };
 
-export struct RejectResult {
+export struct TokenRejectResult {
     std::string message;
     std::string_view::const_iterator where;
 };
 
-using TokenAcceptorResult = std::variant<AcceptResult, RejectResult>;
+using TokenAcceptorResult = std::variant<TokenAcceptResult, TokenRejectResult>;
 
 bool nextCharacterIsConflicting(char nextChar) {
     // A conflicting token includes an identifier, a number, a string, or a keyword
@@ -43,7 +43,7 @@ export class IdentifierAcceptor : public TokenAcceptor {
         TokenAcceptorResult accept(std::string_view::const_iterator stringIter, const std::string_view::const_iterator stringEnd, const std::string_view::const_iterator codeBegin) override {
             const auto stringStart = stringIter;
             if (stringStart == stringEnd || !(std::isalpha(*stringStart) || *stringStart == '_')) {
-                return RejectResult{"Not an idenfier", stringStart};
+                return TokenRejectResult{"Not an idenfier", stringStart};
             }
             std::string value;
             while (stringIter != stringEnd && (std::isalnum(*stringIter) || *stringIter == '_')) {
@@ -51,10 +51,10 @@ export class IdentifierAcceptor : public TokenAcceptor {
                 stringIter++;
             }
             if (stringIter != stringEnd && nextCharacterIsConflicting(*stringIter)) {
-                return RejectResult{"Invalid character '" + std::string(1, *stringIter) + "' in identifier", stringIter};
+                return TokenRejectResult{"Invalid character '" + std::string(1, *stringIter) + "' in identifier", stringIter};
             }
             Token token = TokenFactory::getIdentifierToken(value, codeBegin, stringStart);
-            return AcceptResult{token, stringIter};
+            return TokenAcceptResult{token, stringIter};
         }
 };
 
@@ -64,7 +64,7 @@ export class NumberAcceptor : public TokenAcceptor {
         TokenAcceptorResult accept(std::string_view::const_iterator stringIter, const std::string_view::const_iterator stringEnd, const std::string_view::const_iterator codeBegin) override {
             const auto stringStart = stringIter;
             if (stringStart == stringEnd || !std::isdigit(*stringStart)) {
-                return RejectResult{"Not a number", stringStart};
+                return TokenRejectResult{"Not a number", stringStart};
             }
             enum State {
                 INT,
@@ -98,13 +98,13 @@ export class NumberAcceptor : public TokenAcceptor {
                 stringIter++;
             }
             if (state == DOT) {
-                return RejectResult{"Invalid digit '.' in numeric constant", stringIter};
+                return TokenRejectResult{"Invalid digit '.' in numeric constant", stringIter};
             }
             if (stringIter != stringEnd && nextCharacterIsConflicting(*stringIter)) {
-                return RejectResult{"Invalid digit '" + std::string(1, *stringIter) + "' in numeric constant", stringIter};
+                return TokenRejectResult{"Invalid digit '" + std::string(1, *stringIter) + "' in numeric constant", stringIter};
             }
             Token token = state == FLOAT ? TokenFactory::getFloatLiteralToken(value, codeBegin, stringStart) : TokenFactory::getIntegerLiteralToken(value, codeBegin, stringStart);
-            return AcceptResult{token, stringIter};
+            return TokenAcceptResult{token, stringIter};
         }
 };
 
@@ -114,7 +114,7 @@ export class StringAcceptor : public TokenAcceptor {
         TokenAcceptorResult accept(std::string_view::const_iterator stringIter, const std::string_view::const_iterator stringEnd, const std::string_view::const_iterator codeBegin) override {
             const auto stringStart = stringIter;
             if (stringStart == stringEnd || *stringStart != '"') {
-                return RejectResult{"Not a string", stringStart};
+                return TokenRejectResult{"Not a string", stringStart};
             }
             enum State {
                 NORMAL,
@@ -126,7 +126,7 @@ export class StringAcceptor : public TokenAcceptor {
             State state = NORMAL;
             while (stringIter != stringEnd && !(state == NORMAL && *stringIter == '"')) {
                 if (*stringIter == '\n') {
-                    return RejectResult{"Unexpected newline in string constant", stringIter};
+                    return TokenRejectResult{"Unexpected newline in string constant", stringIter};
                 }
                 value += *stringIter;
                 // Decide whether the *next* character is an escape character
@@ -140,15 +140,15 @@ export class StringAcceptor : public TokenAcceptor {
                 stringIter++;
             }
             if (stringIter == stringEnd) {
-                return RejectResult{"Expected a double quote", stringIter};
+                return TokenRejectResult{"Expected a double quote", stringIter};
             }
             value += *stringIter;
             stringIter++;
             if (stringIter != stringEnd && nextCharacterIsConflicting(*stringIter)) {
-                return RejectResult{"Invalid character '" + std::string(1, *stringIter) + "' in string constant", stringIter};
+                return TokenRejectResult{"Invalid character '" + std::string(1, *stringIter) + "' in string constant", stringIter};
             }
             Token token = TokenFactory::getStringLiteralToken(value, codeBegin, stringStart);
-            return AcceptResult{token, stringIter};
+            return TokenAcceptResult{token, stringIter};
         }
 };
 
@@ -158,7 +158,7 @@ export class KeywordAcceptor : public TokenAcceptor {
         TokenAcceptorResult accept(std::string_view::const_iterator stringIter, const std::string_view::const_iterator stringEnd, const std::string_view::const_iterator codeBegin) override {
             const auto stringStart = stringIter;
             if (stringStart == stringEnd || !std::isalpha(*stringStart) || *stringStart == '_') {
-                return RejectResult{"Not a keyword", stringStart};
+                return TokenRejectResult{"Not a keyword", stringStart};
             }
             const int maxLength = TokenFactory::longestKeywordLength;
             std::string value;
@@ -168,9 +168,9 @@ export class KeywordAcceptor : public TokenAcceptor {
             }
             const std::optional<Token> token = TokenFactory::findKeywordToken(value, codeBegin, stringStart);
             if (!token.has_value() || (stringIter != stringEnd && nextCharacterIsConflicting(*stringIter))) {
-                return RejectResult{"Not a keyword: " + value, stringStart};
+                return TokenRejectResult{"Not a keyword: " + value, stringStart};
             }
-            return AcceptResult{token.value(), stringIter};
+            return TokenAcceptResult{token.value(), stringIter};
         }
 };
 
@@ -180,11 +180,11 @@ export class OperatorAcceptor : public TokenAcceptor {
         TokenAcceptorResult accept(std::string_view::const_iterator stringIter, const std::string_view::const_iterator stringEnd, const std::string_view::const_iterator codeBegin) override {
             const auto stringStart = stringIter;
             if (stringStart == stringEnd || !std::ispunct(*stringStart)) {
-                return RejectResult{"Expected a operator character", stringStart};
+                return TokenRejectResult{"Expected a operator character", stringStart};
             }
             const int maxLength = TokenFactory::longestOperatorLength;
             std::string value;
-            std::optional<AcceptResult> currentBestResult;
+            std::optional<TokenAcceptResult> currentBestResult;
             while (stringIter != stringEnd && value.size() < maxLength) {
                 value += *stringIter;
                 const std::optional<Token> token = TokenFactory::findOperatorToken(value, codeBegin, stringStart);
@@ -194,7 +194,7 @@ export class OperatorAcceptor : public TokenAcceptor {
                 stringIter++;
             }
             if (!currentBestResult.has_value()) {
-                return RejectResult{"Not an operator: " + value, stringStart};
+                return TokenRejectResult{"Not an operator: " + value, stringStart};
             }
             return currentBestResult.value();
         }
@@ -208,9 +208,9 @@ export class PunctuatorAcceptor : public TokenAcceptor {
             const int maxLength = TokenFactory::longestPunctuatorLength;
             std::string value;
             if (stringStart == stringEnd || !std::ispunct(*stringStart)) {
-                return RejectResult{"Expected a punctuator character", stringStart};
+                return TokenRejectResult{"Expected a punctuator character", stringStart};
             }
-            std::optional<AcceptResult> currentBestResult;
+            std::optional<TokenAcceptResult> currentBestResult;
             while (stringIter != stringEnd && value.size() < maxLength) {
                 value += *stringIter;
                 const std::optional<Token> token = TokenFactory::findPunctuatorToken(value, codeBegin, stringStart);
@@ -220,7 +220,7 @@ export class PunctuatorAcceptor : public TokenAcceptor {
                 stringIter++;
             }
             if (!currentBestResult.has_value()) {
-                return RejectResult{"Not a punctuator: " + value, stringStart};
+                return TokenRejectResult{"Not a punctuator: " + value, stringStart};
             }
             return currentBestResult.value();
         }

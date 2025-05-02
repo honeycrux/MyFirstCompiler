@@ -23,8 +23,14 @@ import terminalfactory;
 export using ParserError = std::string;
 
 export class Parser {
-    public:
-        std::variant<bool, ParserError> parse(const std::vector<Token>& tokens) const {
+    private:
+        const std::unique_ptr<ParserBase> varConstParser;
+        const std::unique_ptr<ParserBase> paramListParser;
+        const std::unique_ptr<ParserBase> parser;
+        const SimplifyInstructionMap simplifyInstructionMap;
+        const AstHandlerMap astHandlerMap;
+
+        std::unique_ptr<ParserBase> createVarConstParser() const {
             const auto id = TerminalFactory::getIdentifier();
             const auto intLiteral = TerminalFactory::getIntegerLiteral();
             const auto floatLiteral = TerminalFactory::getFloatLiteral();
@@ -33,7 +39,7 @@ export class Parser {
             const auto getOperator = TerminalFactory::getOperator;
             const auto getPunctuator = TerminalFactory::getPunctuator;
 
-            std::unique_ptr<LL1Parser> varConstParser = std::make_unique<LL1Parser>(NonTerminal("S"), LL1ParsingTable{
+            std::unique_ptr<ParserBase> varConstParser = std::make_unique<LL1Parser>(NonTerminal("S"), LL1ParsingTable{
                 // S
                 {
                     { NonTerminal("S"), intLiteral },
@@ -97,11 +103,27 @@ export class Parser {
                 },
                 {
                     { NonTerminal("Var'"), getPunctuator("[") },
-                    { getPunctuator("["), intLiteral, getPunctuator("]") }
+                    { getPunctuator("["), NonTerminal("VarConst"), getPunctuator("]") }
+                },
+                {
+                    { NonTerminal("Var'"), getPunctuator("]") },
+                    {}
                 }
             });
 
-            std::unique_ptr<SLR1Parser> paramListParser = std::make_unique<SLR1Parser>(
+            return varConstParser;
+        }
+
+        std::unique_ptr<ParserBase> createParamListParser() const {
+            const auto id = TerminalFactory::getIdentifier();
+            const auto intLiteral = TerminalFactory::getIntegerLiteral();
+            const auto floatLiteral = TerminalFactory::getFloatLiteral();
+            const auto strLiteral = TerminalFactory::getStringLiteral();
+            const auto getKeyword = TerminalFactory::getKeyword;
+            const auto getOperator = TerminalFactory::getOperator;
+            const auto getPunctuator = TerminalFactory::getPunctuator;
+
+            std::unique_ptr<ParserBase> paramListParser = std::make_unique<SLR1Parser>(
                 State("S0"),
                 ProductionMap{
                     { 1, { NonTerminal("ParamList"), { NonTerminal("Param"), getPunctuator(","), NonTerminal("ParamList") } } },
@@ -161,7 +183,19 @@ export class Parser {
                 }
             );
 
-            const RecursiveDescentParser parser(
+            return paramListParser;
+        }
+
+        std::unique_ptr<ParserBase> createParser() const {
+            const auto id = TerminalFactory::getIdentifier();
+            const auto intLiteral = TerminalFactory::getIntegerLiteral();
+            const auto floatLiteral = TerminalFactory::getFloatLiteral();
+            const auto strLiteral = TerminalFactory::getStringLiteral();
+            const auto getKeyword = TerminalFactory::getKeyword;
+            const auto getOperator = TerminalFactory::getOperator;
+            const auto getPunctuator = TerminalFactory::getPunctuator;
+
+            std::unique_ptr<ParserBase> parser = std::make_unique<RecursiveDescentParser>(
                 NonTerminal("Start"),
                 RdpProductMap{
                     {
@@ -208,15 +242,31 @@ export class Parser {
                     {
                         NonTerminal("VarAssignable"),
                         {
-                            { NonTerminal("Var"), getOperator("="), NonTerminal("Expr") },
-                            { NonTerminal("Var") }
+                            { id, getOperator("="), NonTerminal("Expr") },
+                            { id, getPunctuator("["), intLiteral, getPunctuator("]") },
+                            { id }
                         }
                     },
 
                     {
+                        NonTerminal("VarConst"),
+                        {
+                            { NonTerminal("Var") },
+                            { NonTerminal("Constant") },
+                        }
+                    },
+                    {
+                        NonTerminal("Constant"),
+                        {
+                            { intLiteral },
+                            { floatLiteral },
+                            { strLiteral }
+                        }
+                    },
+                    {
                         NonTerminal("Var"),
                         {
-                            { id, getPunctuator("["), intLiteral, getPunctuator("]") },
+                            { id, getPunctuator("["), NonTerminal("VarConst"), getPunctuator("]") },
                             { id }
                         }
                     },
@@ -279,15 +329,15 @@ export class Parser {
                     {
                         NonTerminal("ForVarDecl"),
                         {
-                            { NonTerminal("VarAssignList") }
+                            { NonTerminal("VarAssignList") },
+                            {}
                         }
                     },
                     {
                         NonTerminal("VarAssignList"),
                         {
                             { NonTerminal("VarAssign"), getPunctuator(","), NonTerminal("VarAssignList") },
-                            { NonTerminal("VarAssign") },
-                            {}
+                            { NonTerminal("VarAssign") }
                         }
                     },
                     {
@@ -466,6 +516,10 @@ export class Parser {
                 }
             );
 
+            return parser;
+        }
+
+        SimplifyInstructionMap createSimplifyInstructionMap() const {
             const SimplifyInstructionMap simplifyInstructionMap{
                 { NonTerminal("Start"), SimplifyInstruction::RETAIN },
                 { NonTerminal("DeclList"), SimplifyInstruction::MERGE_UP },
@@ -517,7 +571,11 @@ export class Parser {
                 { NonTerminal("Var'"), SimplifyInstruction::MERGE_UP }
             };
 
-            const AstHandlerMap handlerMap{
+            return simplifyInstructionMap;
+        }
+
+        AstHandlerMap createAstHandlerMap() const {
+            const AstHandlerMap astHandlerMap{
                 {
                     NonTerminal("Start"), [](const SPTChildren& children) {
                         std::vector<std::unique_ptr<AstNode>> astChildren;
@@ -568,24 +626,33 @@ export class Parser {
                 },
                 {
                     NonTerminal("VarAssignable"), [](const SPTChildren& children) {
-                        const auto& var = std::get<SimpleParseTree>(children[0]);
+                        const auto& id = std::get<Token>(children[0]);
+                        std::optional<std::unique_ptr<AstNode>> arrayIndex;
                         std::optional<std::unique_ptr<AstNode>> expr;
-                        if (children.size() > 1) {
-                            const auto& exprChild = std::get<SimpleParseTree>(children[2]);
-                            expr = exprChild.toAst();
+                        if (children.size() > 3) {
+                            const auto& index = std::get<Token>(children[2]);
+                            arrayIndex = std::make_unique<Constant>(index);
                         }
-                        std::unique_ptr<AstNode> varAssignable = std::make_unique<VarAssignable>(var.toAst(), std::move(expr));
+                        else {
+                            if (children.size() > 1) {
+                                const auto& exprChild = std::get<SimpleParseTree>(children[children.size() - 1]);
+                                expr = exprChild.toAst();
+                            }
+                        }
+                        std::unique_ptr<AstNode> var = std::make_unique<Var>(id, std::move(arrayIndex));
+                        std::unique_ptr<AstNode> varAssignable = std::make_unique<VarAssignable>(std::move(var), std::move(expr));
                         return varAssignable;
                     }
                 },
                 {
                     NonTerminal("Var"), [](const SPTChildren& children) {
                         const auto& id = std::get<Token>(children[0]);
-                        std::optional<Token> arrayIndex;
+                        std::optional<std::unique_ptr<AstNode>> arrayIndex;
                         if (children.size() > 1) {
-                            arrayIndex.emplace(std::get<Token>(children[2]));
+                            const auto& arrayIndexChild = std::get<SimpleParseTree>(children[2]);
+                            arrayIndex = arrayIndexChild.toAst();
                         }
-                        std::unique_ptr<AstNode> var = std::make_unique<Var>(id, arrayIndex);
+                        std::unique_ptr<AstNode> var = std::make_unique<Var>(id, std::move(arrayIndex));
                         return var;
                     }
                 },
@@ -863,7 +930,23 @@ export class Parser {
                 }
             };
 
-            auto result = parser.parse(tokens.begin(), tokens.end());
+            return astHandlerMap;
+        }
+
+    public:
+        Parser()
+            : varConstParser(createVarConstParser()),
+              paramListParser(createParamListParser()),
+              parser(createParser()),
+              simplifyInstructionMap(createSimplifyInstructionMap()),
+              astHandlerMap(createAstHandlerMap()) {}
+
+        std::variant<bool, ParserError> parse(const std::vector<Token>& tokens) const {
+            if (tokens.empty()) {
+                return ParserError("Error: empty input");
+            }
+
+            auto result = parser->parse(tokens.begin(), tokens.end());
 
             if (std::holds_alternative<ParserRejectResult>(result)) {
                 const auto rejectResult = std::get<ParserRejectResult>(result);
@@ -875,11 +958,10 @@ export class Parser {
                     return ParserError("Error: parsing ended before the end of program (" + acceptResult.next->getPosition() + ")");
                 }
                 std::cout << acceptResult.parseTree.toString() << std::endl;
-                const auto simplified = acceptResult.parseTree.simplify(simplifyInstructionMap, handlerMap);
+                const auto simplified = acceptResult.parseTree.simplify(simplifyInstructionMap, astHandlerMap);
                 std::cout << simplified.toString() << std::endl;
                 const auto ast = simplified.toAst();
                 std::cout << ast->toQuadrupleString() << std::endl;
-                // const auto ast = acceptResult.parseTree.toAst(handlerMap);
                 const auto typeCheckResult = ast->startTypeCheck();
                 if (std::holds_alternative<TypeCheckError>(typeCheckResult)) {
                     const auto typeCheckError = std::get<TypeCheckError>(typeCheckResult);
