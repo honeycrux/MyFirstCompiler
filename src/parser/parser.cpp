@@ -867,7 +867,7 @@ export class Parser {
 
             if (std::holds_alternative<ParserRejectResult>(result)) {
                 const auto rejectResult = std::get<ParserRejectResult>(result);
-                return ParserError(rejectResult.message + " (" + rejectResult.where + ")");
+                return ParserError(rejectResult.message + " (at position " + rejectResult.where->getPosition() + ")");
             }
             else if (std::holds_alternative<ParserAcceptResult>(result)) {
                 const auto acceptResult = std::get<ParserAcceptResult>(result);

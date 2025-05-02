@@ -148,15 +148,15 @@ export class AstNode {
             return "unknown";
         }
 
-        SymbolTable::iterator findSymbol(const SymbolTableNode& symbolTableNode, const std::string& name) const {
+        std::optional<SymbolTableEntry> findSymbol(const SymbolTableNode& symbolTableNode, const std::string& name) const {
             auto it = symbolTableNode.table->find(name);
             if (it != symbolTableNode.table->end()) {
-                return it;
+                return it->second;
             }
             if (symbolTableNode.parent != nullptr) {
                 return findSymbol(*symbolTableNode.parent, name);
             }
-            return symbolTableNode.table->end();
+            return std::nullopt;
         }
 
         // std::string openString() const {
@@ -437,9 +437,15 @@ export class Var : public AstNode {
                 SymbolTableEntry entry{id.getValue(), assignedType, arrayIndex.has_value()};
                 symbolTableNode.table->emplace(id.getValue(), entry);
             }
-            auto it = findSymbol(symbolTableNode, id.getValue());
-            if (it != symbolTableNode.table->end()) {
-                return TypeCheckSuccess{ it->second.type }; // has type
+            auto entry = findSymbol(symbolTableNode, id.getValue());
+            if (entry.has_value()) {
+                if (entry->isArray && !arrayIndex.has_value()) {
+                    return TypeCheckError{ "Array variable used without index: " + id.getValue(), getWhere() };
+                }
+                if (!entry->isArray && arrayIndex.has_value()) {
+                    return TypeCheckError{ "Non-array variable used with index: " + id.getValue(), getWhere() };
+                }
+                return TypeCheckSuccess{ entry.value().type }; // has type
             }
             return TypeCheckError{ "Variable not found: " + id.getValue(), getWhere() };
         }
@@ -1644,12 +1650,11 @@ export class FuncCall : public AstNode {
         }
 
         TypeCheckResult typeCheck(const SymbolTableNode& symbolTableNode, const DataType assignedType) const override {
-            const auto entryIter = findSymbol(symbolTableNode, id.getValue());
-            if (entryIter == symbolTableNode.table->end()) {
+            const auto entry = findSymbol(symbolTableNode, id.getValue());
+            if (entry.has_value()) {
                 return TypeCheckError{ "Function not found", id.getPosition() };
             }
-            const auto& entry = entryIter->second;
-            if (entry.type != FUNC_T) {
+            if (entry.value().type != FUNC_T) {
                 return TypeCheckError{ "Identifier is not a function", id.getPosition() };
             }
             for (const auto& arg : exprs) {

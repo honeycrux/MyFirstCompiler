@@ -68,13 +68,13 @@ export class Lexer {
                         RejectResult rejectResult = std::get<RejectResult>(result);
                         bool iterMoved = rejectResult.where != codeIter;
                         if (iterMoved) {
-                            return LexicalError(rejectResult.message + " (" + formatPosition(code.begin(), rejectResult.where) + ")");
+                            return LexicalError(rejectResult.message + " (at position " + formatPosition(code.begin(), rejectResult.where) + ")");
                         }
                     }
                 }
                 // 3. Error if no acceptor accepted
                 if (codeIter != codeEnd && !accepted) {
-                    return LexicalError("Unexpected token: " + std::string(1, *codeIter) + " (" + formatPosition(code.begin(), codeIter) + ")");
+                    return LexicalError("Unexpected token: " + std::string(1, *codeIter) + " (at position " + formatPosition(code.begin(), codeIter) + ")");
                 }
             }
             return tokens;

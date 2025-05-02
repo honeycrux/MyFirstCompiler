@@ -85,7 +85,7 @@ export class SLR1Parser : public ParserBase {
 
                 const auto instructionIter = findInstruction();
                 if (!instructionIter.has_value()) {
-                    return ParserRejectResult{"No production found", nextTokenIter->getPosition()};
+                    return ParserRejectResult{"No production found", nextTokenIter};
                 }
                 const auto& instruction = instructionIter.value();
 
@@ -95,7 +95,7 @@ export class SLR1Parser : public ParserBase {
                     // Push new state to stack
                     const auto newState = std::get<State>(instruction);
                     if (nextTokenIter == tokenEnd) {
-                        return ParserRejectResult{"Unexpected end of input", nextTokenIter->getPosition()};
+                        return ParserRejectResult{"Unexpected end of input", nextTokenIter};
                     }
                     stateSymbolStack.push(std::make_pair(newState, *nextTokenIter));
                     nextTokenIter++;
@@ -127,11 +127,11 @@ export class SLR1Parser : public ParserBase {
                     // Find new state
                     const auto nextStateIter = parsingTable.find(std::make_pair(getCurrentState(), SymbolOrEOL{nonTerminal}));
                     if (nextStateIter == parsingTable.end()) {
-                        return ParserRejectResult{"SLR1 Unexpected token: " + (*nextTokenIter).toStringPrint(), nextTokenIter->getPosition()};
+                        return ParserRejectResult{"SLR1 Unexpected token: " + (*nextTokenIter).toStringPrint()};
                     }
                     const auto& nextStateInstruction = nextStateIter->second;
                     if (!std::holds_alternative<State>(nextStateInstruction)) {
-                        return ParserRejectResult{"SLR1 Unexpected token: " + (*nextTokenIter).toStringPrint(), nextTokenIter->getPosition()};
+                        return ParserRejectResult{"SLR1 Unexpected token: " + (*nextTokenIter).toStringPrint()};
                     }
                     const auto newState = std::get<State>(nextStateInstruction);
 
@@ -142,11 +142,11 @@ export class SLR1Parser : public ParserBase {
 
                     const auto& stackTop = stateSymbolStack.top().second;
                     if (std::holds_alternative<Token>(stackTop)) {
-                        return ParserRejectResult{"SLR1 Unexpected token: " + std::get<Token>(stackTop).toStringPrint(), nextTokenIter->getPosition()};
+                        return ParserRejectResult{"SLR1 Unexpected token: " + std::get<Token>(stackTop).toStringPrint(), nextTokenIter};
                     }
                     const auto& parseTree = std::get<ParseTree>(stackTop);
 
-                    return ParserAcceptResult{parseTree, nextTokenIter};
+                    return ParserAcceptResult{parseTree, nextTokenIter, nextTokenIter};
                 } else {
                     throw std::runtime_error("Unknown instruction type");
                 }

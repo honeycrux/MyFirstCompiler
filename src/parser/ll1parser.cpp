@@ -150,11 +150,11 @@ export class LL1Parser : public ParserBase {
 
             while (true) {
                 if (symbolStack.empty()) {
-                    return ParserRejectResult{"Unexpected end of symbol stack", nextTokenIter->getPosition()};
+                    return ParserRejectResult{"Unexpected end of symbol stack", nextTokenIter};
                 }
 
                 if (nextTokenIter == tokenEnd) {
-                    return ParserRejectResult{"Unexpected end of input", nextTokenIter->getPosition()};
+                    return ParserRejectResult{"Unexpected end of input", nextTokenIter};
                 }
 
                 const auto currentSymbol = symbolStack.top();
@@ -163,7 +163,7 @@ export class LL1Parser : public ParserBase {
                     // The top of symbol stack is EOL
 
                     symbolStack.pop();
-                    return ParserAcceptResult{parseTree.toParseTree().withoutStartSymbol(), nextTokenIter};
+                    return ParserAcceptResult{parseTree.toParseTree().withoutStartSymbol(), nextTokenIter, nextTokenIter};
                 }
                 else if (std::holds_alternative<Terminal>(currentSymbol)) {
                     // The top of symbol stack is a terminal
@@ -175,7 +175,7 @@ export class LL1Parser : public ParserBase {
                         nextTokenIter++;
                         symbolStack.pop();
                     } else {
-                        return ParserRejectResult{"LL1 Unexpected token: " + nextTokenIter->toStringPrint(), nextTokenIter->getPosition()};
+                        return ParserRejectResult{"LL1 Unexpected token: " + nextTokenIter->toStringPrint(), nextTokenIter};
                     }
                 } else if (std::holds_alternative<NonTerminal>(currentSymbol)) {
                     // The top of symbol stack is a non-terminal
@@ -203,7 +203,7 @@ export class LL1Parser : public ParserBase {
 
                     const auto production = findProduction();
                     if (!production.has_value()) {
-                        return ParserRejectResult{"No production found for non-terminal: " + std::string{stackNonTerminal.getName()}, nextTokenIter->getPosition()};
+                        return ParserRejectResult{"No production found for non-terminal: " + std::string{stackNonTerminal.getName()}, nextTokenIter};
                     }
 
                     // Push symbols to temp stack
@@ -251,6 +251,6 @@ export class LL1Parser : public ParserBase {
                 }
             }
 
-            return ParserRejectResult{"Unexpected end of symbol stack", nextTokenIter->getPosition()};
+            return ParserRejectResult{"Unexpected end of symbol stack", nextTokenIter};
         }
 };

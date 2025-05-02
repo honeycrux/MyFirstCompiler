@@ -5,7 +5,6 @@ module;
 #include <variant>
 #include <map>
 #include <stdexcept>
-// #include <iostream>
 
 export module rdparser;
 
@@ -22,13 +21,13 @@ export class RecursiveDescentParser : public ParserBase {
         const RdpProductMap productMap;
 
         ParsingResult parseNonTerminal(std::vector<Token>::const_iterator tokenIter, const std::vector<Token>::const_iterator tokenEnd, const NonTerminal& nonTerminal) const {
-            // std::cout << "[in] " << nonTerminal.getName() << " this: " << (tokenIter == tokenEnd ? "EOL" : tokenIter->toStringPrint()) << std::endl;
-
             auto productsIter = productMap.find(nonTerminal);
             if (productsIter == productMap.end()) {
                 throw std::runtime_error("No production or subparser found for non-terminal: " + std::string{nonTerminal.getName()});
             }
             auto products = productsIter->second;
+
+            std::vector<Token>::const_iterator bestIter = tokenIter;
 
             for (const auto& product : products) {
                 ParseTree parseTree(nonTerminal);
@@ -48,35 +47,48 @@ export class RecursiveDescentParser : public ParserBase {
                         const auto& nonTerminalSymbol = std::get<NonTerminal>(symbol);
                         ParsingResult result = parseNonTerminal(nextTokenIter, tokenEnd, nonTerminalSymbol);
                         if (std::holds_alternative<ParserRejectResult>(result)) {
+                            auto rejectResult = std::get<ParserRejectResult>(result);
+                            if (rejectResult.where->getPositionNumber() > bestIter->getPositionNumber()) {
+                                bestIter = rejectResult.where;
+                            }
                             success = false;
                             break;
                         }
                         auto acceptResult = std::get<ParserAcceptResult>(result);
                         parseTree.addChild(acceptResult.parseTree);
                         nextTokenIter = acceptResult.next;
+                        if (acceptResult.bestIter->getPositionNumber() > bestIter->getPositionNumber()) {
+                            bestIter = acceptResult.bestIter;
+                        }
                     }
                     else if (std::holds_alternative<ParserBase*>(symbol)) {
                         const auto& subParser = std::get<ParserBase*>(symbol);
                         ParsingResult result = subParser->parse(nextTokenIter, tokenEnd);
                         if (std::holds_alternative<ParserRejectResult>(result)) {
+                            auto rejectResult = std::get<ParserRejectResult>(result);
+                            if (rejectResult.where->getPositionNumber() > bestIter->getPositionNumber()) {
+                                bestIter = rejectResult.where;
+                            }
                             success = false;
                             break;
                         }
                         auto acceptResult = std::get<ParserAcceptResult>(result);
                         parseTree.addChild(acceptResult.parseTree);
                         nextTokenIter = acceptResult.next;
+                        if (acceptResult.bestIter->getPositionNumber() > bestIter->getPositionNumber()) {
+                            bestIter = acceptResult.bestIter;
+                        }
                     }
                     else {
                         throw std::runtime_error("Unknown symbol type");
                     }
                 }
                 if (success) {
-                    // std::cout << "[success] " << nonTerminal.getName() << " next: " << (nextTokenIter == tokenEnd ? "EOL" : nextTokenIter->toStringPrint()) << std::endl;
-                    return ParserAcceptResult{parseTree, nextTokenIter};
+                    return ParserAcceptResult{parseTree, nextTokenIter, bestIter};
                 }
             }
-            // std::cout << "[fail] " << nonTerminal.getName() << std::endl;
-            return ParserRejectResult{"No valid production found for non-terminal: " + std::string{nonTerminal.getName()}, tokenIter->getPosition()};
+
+            return ParserRejectResult{"Parsing error", bestIter};
         }
 
     public:

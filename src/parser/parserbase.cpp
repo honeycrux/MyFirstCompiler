@@ -169,11 +169,12 @@ class ParseTree {
 export struct ParserAcceptResult {
     ParseTree parseTree;
     std::vector<Token>::const_iterator next;
+    std::vector<Token>::const_iterator bestIter;
 };
 
 export struct ParserRejectResult {
     std::string message;
-    std::string where;
+    std::vector<Token>::const_iterator where;
 };
 
 export using ParsingResult = std::variant<ParserAcceptResult, ParserRejectResult>;
