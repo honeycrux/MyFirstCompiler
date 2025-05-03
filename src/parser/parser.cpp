@@ -6,7 +6,6 @@ module;
 #include <optional>
 #include <string>
 #include <variant>
-#include <iostream>
 #include <functional>
 
 export module parser;
@@ -157,7 +156,7 @@ export class Parser {
 
                     { { State("S5"), id }, 8 },
 
-                    { { State("S6"), id }, 8 },
+                    { { State("S6"), id }, 9 },
 
                     { { State("S7"), getKeyword("int") }, State("S4") },
                     { { State("S7"), getKeyword("float") }, State("S5") },
@@ -171,7 +170,7 @@ export class Parser {
                     { { State("S8"), EOL }, 4 },
 
                     { { State("S9"), getPunctuator(",") }, 6 },
-                    { { State("S9"), getPunctuator("]") }, State("S11") },
+                    { { State("S9"), getPunctuator("[") }, State("S11") },
                     { { State("S9"), EOL }, 6 },
 
                     { { State("S10"), EOL }, 1 },
@@ -502,7 +501,8 @@ export class Parser {
                         NonTerminal("MulOp"),
                         {
                             { getOperator("*") },
-                            { getOperator("/") }
+                            { getOperator("/") },
+                            { getOperator("%") }
                         }
                     },
                     {
@@ -941,7 +941,7 @@ export class Parser {
               simplifyInstructionMap(createSimplifyInstructionMap()),
               astHandlerMap(createAstHandlerMap()) {}
 
-        std::variant<bool, ParserError> parse(const std::vector<Token>& tokens) const {
+        std::variant<std::unique_ptr<AstNode>, ParserError> parse(const std::vector<Token>& tokens) const {
             if (tokens.empty()) {
                 return ParserError("Error: empty input");
             }
@@ -952,25 +952,15 @@ export class Parser {
                 const auto rejectResult = std::get<ParserRejectResult>(result);
                 return ParserError(rejectResult.message + " (at position " + rejectResult.where->getPosition() + ")");
             }
-            else if (std::holds_alternative<ParserAcceptResult>(result)) {
-                const auto acceptResult = std::get<ParserAcceptResult>(result);
-                if (acceptResult.next != tokens.end()) {
-                    return ParserError("Error: parsing ended before the end of program (" + acceptResult.next->getPosition() + ")");
-                }
-                std::cout << acceptResult.parseTree.toString() << std::endl;
-                const auto simplified = acceptResult.parseTree.simplify(simplifyInstructionMap, astHandlerMap);
-                std::cout << simplified.toString() << std::endl;
-                const auto ast = simplified.toAst();
-                std::cout << ast->toQuadrupleString() << std::endl;
-                const auto typeCheckResult = ast->startTypeCheck();
-                if (std::holds_alternative<TypeCheckError>(typeCheckResult)) {
-                    const auto typeCheckError = std::get<TypeCheckError>(typeCheckResult);
-                    return ParserError(typeCheckError.message + " (" + typeCheckError.where + ")");
-                }
-                return true;
+
+            const auto acceptResult = std::get<ParserAcceptResult>(result);
+            if (acceptResult.next != tokens.end()) {
+                return ParserError("Error: parsing ended before the end of program (" + acceptResult.next->getPosition() + ")");
             }
-            else {
-                throw std::runtime_error("Unexpected result type");
-            }
+
+            // std::cout << acceptResult.parseTree.toString() << std::endl;
+            const auto simplified = acceptResult.parseTree.simplify(simplifyInstructionMap, astHandlerMap);
+            // std::cout << simplified.toString() << std::endl;
+            return simplified.toAst();
         }
 };

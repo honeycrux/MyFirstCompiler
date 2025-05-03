@@ -14,7 +14,7 @@ export module lexer;
 import token;
 import tokenacceptor;
 
-export using LexicalError = std::string;
+export using LexerError = std::string;
 
 export class Lexer {
     private:
@@ -44,7 +44,7 @@ export class Lexer {
     public:
         Lexer(): acceptors(createAcceptors()) {}
 
-        std::variant<std::vector<Token>, LexicalError> acceptCode(const std::string_view code) const {
+        std::variant<std::vector<Token>, LexerError> acceptCode(const std::string_view code) const {
             auto codeIter = code.begin();
             const auto codeEnd = code.end();
             std::vector<Token> tokens;
@@ -68,13 +68,13 @@ export class Lexer {
                         TokenRejectResult rejectResult = std::get<TokenRejectResult>(result);
                         bool iterMoved = rejectResult.where != codeIter;
                         if (iterMoved) {
-                            return LexicalError(rejectResult.message + " (at position " + formatPosition(code.begin(), rejectResult.where) + ")");
+                            return LexerError(rejectResult.message + " (at position " + formatPosition(code.begin(), rejectResult.where) + ")");
                         }
                     }
                 }
                 // 3. Error if no acceptor accepted
                 if (codeIter != codeEnd && !accepted) {
-                    return LexicalError("Unexpected token: " + std::string(1, *codeIter) + " (at position " + formatPosition(code.begin(), codeIter) + ")");
+                    return LexerError("Unexpected token: " + std::string(1, *codeIter) + " (at position " + formatPosition(code.begin(), codeIter) + ")");
                 }
             }
             return tokens;

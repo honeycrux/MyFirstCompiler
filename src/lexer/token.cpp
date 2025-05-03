@@ -72,7 +72,7 @@ export class Token {
             int positionNumber;
             std::string position;
 
-            is >> typeId >> value >> positionNumber >> position;
+            is >> id >> typeId >> value >> positionNumber >> position;
 
             return Token(id, static_cast<TokenType>(typeId), value, positionNumber, position);
         }
@@ -83,6 +83,6 @@ std::ostream& operator<<(std::ostream& os, const Token& token) {
         << token.getType() << " "
         << token.getValue() << " "
         << token.getPositionNumber() << " "
-        << token.getPosition();
+        << token.getPosition() << " ";
     return os;
 }

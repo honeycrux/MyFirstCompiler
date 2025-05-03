@@ -3,6 +3,8 @@
 ## Grammar
 The BNF grammar of the language is as follows.
 
+Three types of parsing are used. By default, the parsing of the grammar is done with recursive descent parsing. Grammar labelled with SLR1 and LL1 are parsed with the corresponding methods instead.
+
 ```
 Start ::= DeclList
 DeclList ::= Decl DeclList | Decl
@@ -68,7 +70,7 @@ Constant ::= intconst | floatconst | strconst
 Var ::= id [ VarConst ] | id
 ```
 
-Three types of parsing are used. By default, the parsing of the grammar is done with recursive descent parsing. Grammar labelled with SLR1 and LL1 are parsed with the corresponding methods instead.
+The following notes detail the rewritten grammar that can suit the particular parsing method.
 
 Note 1: SLR1 grammar of the ParamList grammar
 ```
@@ -110,6 +112,12 @@ Var ::= id Var'
 Var' ::= [ Var ] | ε
 ```
 
+## Diagram View
+
+Productions are shown in the diagram below with arrows showing "uses" relationships, together with the parsing method used.
+
+![Grammar Diagram](parser-spec.jpg)
+
 ## Precedence, Associativity
 Operators are listed top to bottom, in descending precedence.  
 l: left-to-right associativity  
@@ -127,12 +135,21 @@ l Logical OR ||
 r assignment operators =
 ```
 
+## Notes about the Language
+Trailing commas are allowed in function parameter lists and function call argument lists.
+
+Inner/nested blocks are not supported.
+
+Single-subscripted array types are supported, but multiple-subscription is not supported. List instantiation is not supported. Declarations of an array must include an integer specifying its size (A[n]). A function parameter of an array type must be specified without its size (A[]). Integer variables or constants can be used for indexing an array, but expressions cannot.
+
+Type checking is limited (see below).
+
 ## Types and Operations Allowed
 Types recognized in the language are `int`, `float`, `str`, `bool`, `func`, `any`, and `none`.
 
-Variables can be declared types `int` `float` `str`. Assigned types must match the declared type (no casting).
+Variables can be declared types `int`, `float`, and `str`. Assigned types must match the declared type (no casting). Redefinitions of types and functions are allowed (newer definitions will semantically replace older definitions).
 
-Array indexing (A[i]) can be applied on single-subscripted array types declared as `int[n]`, `float[n]`, `str[n]`. Integer variables or constants can be used for indexing, but expressions cannot. Multiple subscription is not supported. List instantiation is not supported.
+Array indexing (A[i]) can be applied on single-subscripted array types declared as `int[n]`, `float[n]`, and `str[n]`.
 
 Conditions in if, for, and while statements must have the `bool` or `int` type.
 
@@ -142,11 +159,11 @@ No type checking is applied to (the number of and the types of) the actual argum
 
 The `any` type voids type checking for an identifier, which means a value of the type can be viewed as any other type.
 
-The `none` type is the type returned by statements or structures without a type.
+The `none` type is the type "returned" by statements or structures without a type.
 
 The operand(s) of logical expressions `&&`, `||`, and `!` must have the `bool` or `int` type.
 
-The equality expressions `==` and `!=` compare values of the same type.
+The equality expressions `==` and `!=` compare either numeric (`int`/`float`) values or `str` values.
 
 The relational expressions `<`, `<=`, `>`, and `>=` compare either numeric (`int`/`float`) values or `str` values.
 

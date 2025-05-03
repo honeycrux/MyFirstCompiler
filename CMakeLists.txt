@@ -14,6 +14,8 @@ set(CMAKE_CXX_STANDARD 20)
 # Enable scanning for module dependencies
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
+enable_testing()
+
 add_subdirectory(src/lexer)
 add_subdirectory(src/parser)
 add_subdirectory(src/bin)

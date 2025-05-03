@@ -11,149 +11,149 @@ import lexer;
 
 using Catch::Matchers::ContainsSubstring;
 
-inline std::string getParserOutput(const Lexer& parser, const std::string_view code) {
-    auto result = parser.acceptCode(code);
+inline std::string getLexerOutput(const Lexer& lexer, const std::string_view code) {
+    auto result = lexer.acceptCode(code);
     REQUIRE(std::holds_alternative<std::vector<Token>>(result));
     auto tokens = std::get<std::vector<Token>>(result);
-    return parser.getPrintString(tokens);
+    return lexer.getPrintString(tokens);
 }
 
-inline LexicalError getParserError(const Lexer& parser, const std::string_view code) {
-    auto result = parser.acceptCode(code);
-    REQUIRE(std::holds_alternative<LexicalError>(result));
-    auto lexicalError = std::get<LexicalError>(result);
-    return lexicalError;
+inline LexerError getLexerError(const Lexer& lexer, const std::string_view code) {
+    auto result = lexer.acceptCode(code);
+    REQUIRE(std::holds_alternative<LexerError>(result));
+    auto lexerError = std::get<LexerError>(result);
+    return lexerError;
 }
 
 TEST_CASE("Parse an identifier") {
-    Lexer parser;
+    Lexer lexer;
 
     SECTION("Parse a correct identifier") {
         std::string code = "_hello12k";
-        auto printout = getParserOutput(parser, code);
+        auto printout = getLexerOutput(lexer, code);
         CHECK(printout == "<_hello12k, identifier>");
     }
 
     SECTION("Parse an incorrect identifier") {
         std::string code = "1abc";
-        auto error = getParserError(parser, code);
+        auto error = getLexerError(lexer, code);
     }
 
     SECTION("Parse an identifier that looks like a keyword") {
         std::string code = "if_";
-        auto printout = getParserOutput(parser, code);
+        auto printout = getLexerOutput(lexer, code);
         CHECK(printout == "<if_, identifier>");
     }
 }
 
 TEST_CASE("Parse a numeric literal") {
-    Lexer parser;
+    Lexer lexer;
 
     SECTION("Parse an integer") {
         std::string code = "12";
-        auto printout = getParserOutput(parser, code);
+        auto printout = getLexerOutput(lexer, code);
         CHECK(printout == "<12, integer>");
     }
 
     SECTION("Parse a float") {
         std::string code = "12.04";
-        auto printout = getParserOutput(parser, code);
+        auto printout = getLexerOutput(lexer, code);
         CHECK(printout == "<12.04, float>");
     }
 }
 
 TEST_CASE("Parse a string literal") {
-    Lexer parser;
+    Lexer lexer;
 
     SECTION("Parse a correct string") {
         std::string code = "\"hello\"";
-        auto printout = getParserOutput(parser, code);
+        auto printout = getLexerOutput(lexer, code);
         CHECK(printout == "<\"hello\", string>");
     }
 
     SECTION("Parse a unterminated string") {
         std::string code = "\"hello";
-        auto error = getParserError(parser, code);
+        auto error = getLexerError(lexer, code);
     }
 
     SECTION("Parse escaped characters") {
         std::string code = "\"\\n,\\t,\\\",\\\\,\"";
-        auto printout = getParserOutput(parser, code);
+        auto printout = getLexerOutput(lexer, code);
         CHECK(printout == "<\"\\n,\\t,\\\",\\\\,\", string>");
     }
 
     SECTION("Parse unterminated escape") {
         std::string code = "\"\\\"";
-        auto error = getParserError(parser, code);
+        auto error = getLexerError(lexer, code);
     }
 }
 
 TEST_CASE("Parse a keyword") {
-    Lexer parser;
+    Lexer lexer;
 
     SECTION("Parse keyword") {
-        auto printout = getParserOutput(parser, "do");
+        auto printout = getLexerOutput(lexer, "do");
         CHECK(printout == "<do, keyword>");
     }
 
     SECTION("Parse longest keyword") {
-        auto printout = getParserOutput(parser, "float");
+        auto printout = getLexerOutput(lexer, "float");
         CHECK(printout == "<float, keyword>");
     }
 }
 
 TEST_CASE("Parse an operator") {
-    Lexer parser;
+    Lexer lexer;
 
     SECTION("Parse operator") {
-        auto printout = getParserOutput(parser, ">");
+        auto printout = getLexerOutput(lexer, ">");
         CHECK(printout == "<>, operator>");
     }
 
     SECTION("Parse longest operator") {
-        auto printout = getParserOutput(parser, ">=");
+        auto printout = getLexerOutput(lexer, ">=");
         CHECK(printout == "<>=, operator>");
     }
 
     SECTION("Parse consecutive operators") {
-        auto printout = getParserOutput(parser, "**");
+        auto printout = getLexerOutput(lexer, "**");
         CHECK(printout == "<*, operator>, <*, operator>");
     }
 }
 
 TEST_CASE("Parse a punctuator") {
-    Lexer parser;
+    Lexer lexer;
 
     SECTION("Parse consecutive punctuators") {
-        auto printout = getParserOutput(parser, "{}");
+        auto printout = getLexerOutput(lexer, "{}");
         CHECK(printout == "<{, punctuator>, <}, punctuator>");
     }
 }
 
-TEST_CASE("Lexical parser returns error position") {
-    Lexer parser;
+TEST_CASE("Lexer returns error position") {
+    Lexer lexer;
     std::string code = "12.04.04";
-    auto error = getParserError(parser, code);
-    CHECK_THAT(error, ContainsSubstring("(at position 6)"));
+    auto error = getLexerError(lexer, code);
+    CHECK_THAT(error, ContainsSubstring("(at position 1:6)"));
 }
 
 TEST_CASE("Parse a code snippet") {
-    Lexer parser;
+    Lexer lexer;
 
     SECTION("Parse a statement") {
         std::string code = "str c = 1;";
-        auto printout = getParserOutput(parser, code);
+        auto printout = getLexerOutput(lexer, code);
         CHECK(printout == "<str, keyword>, <c, identifier>, <=, operator>, <1, integer>, <;, punctuator>");
     }
 
     SECTION("Parse a code snippet") {
         std::string code = "\nint main()  \n{\n\treturn 0;  \n  }\n\n";
-        auto printout = getParserOutput(parser, code);
+        auto printout = getLexerOutput(lexer, code);
         CHECK(printout == "<int, keyword>, <main, identifier>, <(, punctuator>, <), punctuator>, <{, punctuator>, <return, keyword>, <0, integer>, <;, punctuator>, <}, punctuator>");
     }
 
     SECTION("Parse a code snippet with error") {
         std::string code = "int main() { return 0.0.0; }";
-        auto error = getParserError(parser, code);
+        auto error = getLexerError(lexer, code);
     }
 }

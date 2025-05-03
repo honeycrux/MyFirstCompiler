@@ -9,6 +9,12 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 
 add_executable(test-lexer test-lexer.cpp)
-add_executable(test-ast test-ast.cpp)
+add_executable(test-parser test-parser.cpp)
+add_executable(test-types test-types.cpp)
 target_link_libraries(test-lexer PRIVATE Catch2::Catch2WithMain lexer)
-target_link_libraries(test-ast PRIVATE Catch2::Catch2WithMain lexer parser)
+target_link_libraries(test-parser PRIVATE Catch2::Catch2WithMain lexer parser)
+target_link_libraries(test-types PRIVATE Catch2::Catch2WithMain lexer parser)
+
+add_test(test-lexer test-lexer)
+add_test(test-parser test-parser)
+add_test(test-types test-types)
